@@ -1,47 +1,20 @@
-import fs from "fs";
-import path from "path";
+import { getSupabase } from "../../lib/supabase";
 
-const SETTINGS_FILE = path.join(process.cwd(), "data", "settings.json");
+export default async function handler(req, res) {
+  const supabase = getSupabase();
+  if (!supabase) return res.status(500).json({ error:"Supabase non configuré" });
 
-function ensureDir() {
-  const dir = path.join(process.cwd(), "data");
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
-
-function loadSettings() {
-  ensureDir();
-  if (!fs.existsSync(SETTINGS_FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
-  } catch {
-    return {};
-  }
-}
-
-function saveSettings(data) {
-  ensureDir();
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2));
-}
-
-export default function handler(req, res) {
   if (req.method === "GET") {
-    const settings = loadSettings();
-    // Never return passwords in GET
-    const { patronPassword, assistantePassword, ...safe } = settings;
-    return res.status(200).json({
-      ...safe,
-      hasPatronPassword: !!patronPassword,
-      hasAssistantePassword: !!assistantePassword,
-    });
+    const { data } = await supabase.from("settings").select("key, value");
+    const out = {};
+    (data || []).forEach(r => { if (!r.key.includes("password")) out[r.key] = r.value; });
+    return res.status(200).json(out);
   }
-
   if (req.method === "POST") {
-    const current = loadSettings();
     const updates = req.body;
-    const merged = { ...current, ...updates };
-    saveSettings(merged);
-    return res.status(200).json({ success: true });
+    const rows = Object.entries(updates).filter(([k]) => !k.includes("password")).map(([key,value]) => ({ key, value:String(value) }));
+    if (rows.length) await supabase.from("settings").upsert(rows);
+    return res.status(200).json({ success:true });
   }
-
-  return res.status(405).json({ error: "Method not allowed" });
+  return res.status(405).json({ error:"Method not allowed" });
 }

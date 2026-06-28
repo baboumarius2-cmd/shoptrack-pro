@@ -1,61 +1,43 @@
-import fs from "fs";
-import path from "path";
+import { getSupabase } from "../../lib/supabase";
 import bcrypt from "bcryptjs";
 
-const SETTINGS_FILE = path.join(process.cwd(), "data", "settings.json");
-
-function loadSettings() {
-  const dir = path.join(process.cwd(), "data");
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  if (!fs.existsSync(SETTINGS_FILE)) return {};
-  try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); }
-  catch { return {}; }
-}
-
-function saveSettings(data) {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2));
-}
+const KEYS = { patron:"patron_password", assistante:"assistante_password", livreur:"livreur_password" };
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+  if (req.method !== "POST") return res.status(405).json({ error:"Method not allowed" });
   const { action, role, password, newPassword } = req.body;
-  const settings = loadSettings();
+  const supabase = getSupabase();
+  if (!supabase) return res.status(500).json({ error:"Base de données non configurée. Ajoutez les clés Supabase dans Vercel." });
 
-  // First time setup — create password
-  if (action === "setup") {
-    if (!role || !newPassword) return res.status(400).json({ error: "Données manquantes" });
-    const key = role === "patron" ? "patronPassword" : "assistantePassword";
-    if (settings[key]) return res.status(400).json({ error: "Mot de passe déjà configuré" });
-    const hash = await bcrypt.hash(newPassword, 10);
-    settings[key] = hash;
-    saveSettings(settings);
-    return res.status(200).json({ success: true });
-  }
+  const key = KEYS[role];
+  if (!key) return res.status(400).json({ error:"Rôle invalide" });
 
-  // Login
-  if (action === "login") {
-    if (!role || !password) return res.status(400).json({ error: "Données manquantes" });
-    const key = role === "patron" ? "patronPassword" : "assistantePassword";
-    if (!settings[key]) return res.status(404).json({ error: "no_password" });
-    const valid = await bcrypt.compare(password, settings[key]);
-    if (!valid) return res.status(401).json({ error: "Mot de passe incorrect" });
-    return res.status(200).json({ success: true, role });
-  }
-
-  // Change password
-  if (action === "change") {
-    if (!role || !password || !newPassword) return res.status(400).json({ error: "Données manquantes" });
-    const key = role === "patron" ? "patronPassword" : "assistantePassword";
-    if (settings[key]) {
-      const valid = await bcrypt.compare(password, settings[key]);
-      if (!valid) return res.status(401).json({ error: "Ancien mot de passe incorrect" });
+  try {
+    if (action === "login") {
+      const { data } = await supabase.from("settings").select("value").eq("key", key).single();
+      if (!data?.value) return res.status(404).json({ error:"no_password" });
+      const ok = await bcrypt.compare(password, data.value);
+      if (!ok) return res.status(401).json({ error:"Mot de passe incorrect" });
+      return res.status(200).json({ success:true, role });
     }
-    const hash = await bcrypt.hash(newPassword, 10);
-    settings[key] = hash;
-    saveSettings(settings);
-    return res.status(200).json({ success: true });
-  }
-
-  return res.status(400).json({ error: "Action inconnue" });
+    if (action === "setup") {
+      if (!newPassword || newPassword.length < 4) return res.status(400).json({ error:"Minimum 4 caractères" });
+      const { data: existing } = await supabase.from("settings").select("value").eq("key", key).single();
+      if (existing?.value) return res.status(400).json({ error:"Mot de passe déjà créé" });
+      const hash = await bcrypt.hash(newPassword, 10);
+      await supabase.from("settings").upsert({ key, value: hash });
+      return res.status(200).json({ success:true });
+    }
+    if (action === "change") {
+      const { data } = await supabase.from("settings").select("value").eq("key", key).single();
+      if (data?.value) {
+        const ok = await bcrypt.compare(password, data.value);
+        if (!ok) return res.status(401).json({ error:"Ancien mot de passe incorrect" });
+      }
+      const hash = await bcrypt.hash(newPassword, 10);
+      await supabase.from("settings").upsert({ key, value: hash });
+      return res.status(200).json({ success:true });
+    }
+  } catch (e) { return res.status(500).json({ error:e.message }); }
+  return res.status(400).json({ error:"Action inconnue" });
 }
