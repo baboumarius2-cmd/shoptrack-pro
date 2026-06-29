@@ -17,6 +17,8 @@ export default function App() {
   const [produits, setProduits] = useState([]);
   const [depenses, setDepenses] = useState([]);
   const [wishlist, setWishlist] = useState([]);
+  const [boutiques, setBoutiques] = useState([]);
+  const [clients, setClients] = useState([]);
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -28,6 +30,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [bilanMode, setBilanMode] = useState("jour");
   const [bilanDate, setBilanDate] = useState(TODAY);
+  const [viewDate, setViewDate] = useState(TODAY);
   const [depFilter, setDepFilter] = useState("tout");
 
   const [showAddProd, setShowAddProd] = useState(false);
@@ -38,6 +41,8 @@ export default function App() {
   const [newOrder, setNewOrder] = useState({client:"",phone:"",produit:"",qte:"1",commune:"Cocody",note:""});
   const [showAddWish, setShowAddWish] = useState(false);
   const [newWish, setNewWish] = useState({nom:"",image:"",lien:"",prixEstime:"",source:"",note:""});
+  const [showAddBoutique, setShowAddBoutique] = useState(false);
+  const [newBoutique, setNewBoutique] = useState({nom:"",domaine:"",token:"",couleur:"#E5B567"});
 
   const [msgTemplate, setMsgTemplate] = useState("Bonjour {nom} 👋\n\nMerci pour votre commande sur Yah-ni Store ! 🛍️\n\n📦 {produit}\n💰 {prix} FCFA\n\nVotre commande sera livrée aujourd'hui. Restez disponible svp.\n\nMerci de votre confiance ! 🙏");
 
@@ -74,10 +79,11 @@ export default function App() {
   }
 
   /* ─ DATA ─ */
-  const loadOrders = useCallback(async()=>{
+  const loadOrders = useCallback(async(forDate)=>{
     setRefreshing(true);
     try{
-      const [shopR, savedR] = await Promise.all([ fetch("/api/shopify"), fetch("/api/orders") ]);
+      const d = forDate || TODAY;
+      const [shopR, savedR] = await Promise.all([ fetch(`/api/shopify?date=${d}`), fetch("/api/orders") ]);
       const shop = await shopR.json();
       const saved = await savedR.json();
       const savedMap = {};
@@ -96,8 +102,20 @@ export default function App() {
         statut:o.statut||"en_attente", date:o.date, heure:o.heure||"", contacted:o.contacted||[],
         transferred:o.transferred||false, livreurStatut:o.livreur_statut||"en_attente",
         note:o.note||"", motif:o.motif||"", reportDate:o.report_date||"", wasReported:o.was_reported||false, isManual:true,
+        boutiqueNom:o.boutique_nom||"", boutiqueId:o.boutique_id||"",
       }));
-      setOrders([...merged, ...manuals]);
+      // Commandes reportées (Shopify) sauvegardées : les ré-injecter même si Shopify ne les renvoie pas pour cette date
+      const mergedIds = new Set(merged.map(m=>m.shopifyId));
+      const reportedSaved = (saved||[]).filter(o=>!o.is_manual && o.statut==="reportee" && !mergedIds.has(o.shopify_id)).map(o=>({
+        id:o.numero||o.shopify_id, shopifyId:o.shopify_id, numero:o.numero, client:o.client, phone:o.phone||"",
+        produit:o.produit, produitId:o.produit_id||"", quantite:o.quantite||1, prix:o.prix||0,
+        commune:o.commune||"Inconnu", adresse:o.adresse||o.commune, livraison:2000,
+        statut:"reportee", date:o.date, heure:o.heure||"", contacted:o.contacted||[],
+        transferred:o.transferred||false, livreurStatut:o.livreur_statut||"en_attente",
+        note:o.note||"", motif:o.motif||"", reportDate:o.report_date||"", wasReported:o.was_reported||false, isManual:false,
+        boutiqueNom:o.boutique_nom||"", boutiqueId:o.boutique_id||"",
+      }));
+      setOrders([...merged, ...manuals, ...reportedSaved]);
     }catch(e){ console.error(e); }
     setRefreshing(false);
   },[]);
@@ -105,25 +123,28 @@ export default function App() {
   const loadAll = useCallback(async()=>{
     setLoading(true);
     try{
-      const [s,p,d,w] = await Promise.all([ fetch("/api/settings"), fetch("/api/produits"), fetch("/api/depenses"), fetch("/api/wishlist") ]);
+      const [s,p,d,w,b,cl] = await Promise.all([ fetch("/api/settings"), fetch("/api/produits"), fetch("/api/depenses"), fetch("/api/wishlist"), fetch("/api/boutiques"), fetch("/api/clients") ]);
       const sj = await s.json(); setSettings(sj||{});
       if(sj?.msg_template) setMsgTemplate(sj.msg_template);
       setProduits(await p.json()||[]);
       setDepenses(await d.json()||[]);
       setWishlist(await w.json()||[]);
+      setBoutiques(await b.json()||[]);
+      setClients(await cl.json()||[]);
     }catch(e){ console.error(e); }
     setLoading(false);
   },[]);
 
-  useEffect(()=>{ if(screen==="app"){ loadAll(); loadOrders(); } },[screen]);
+  useEffect(()=>{ if(screen==="app"){ loadAll(); loadOrders(viewDate); } },[screen]);
+  useEffect(()=>{ if(screen==="app"){ loadOrders(viewDate); } },[viewDate]);
 
   /* ─ DERIVED ─ */
   // Orders to show today: created today OR reported to today
-  const todayOrders = orders.filter(o => o.date===TODAY || (o.statut==="reportee" && o.reportDate===TODAY));
+  const todayOrders = orders.filter(o => o.date===viewDate || (o.statut==="reportee" && o.reportDate===viewDate));
   const abidjan = todayOrders.filter(o=>getZone(o.commune)==="abidjan");
   const hors = todayOrders.filter(o=>getZone(o.commune)==="hors");
   const autre = todayOrders.filter(o=>getZone(o.commune)==="autre");
-  const reportees = orders.filter(o=>o.statut==="reportee" && o.reportDate!==TODAY);
+  const reportees = orders.filter(o=>o.statut==="reportee" && o.reportDate!==viewDate);
   const livrees = todayOrders.filter(o=>o.statut==="livree");
   const enAttente = todayOrders.filter(o=>o.statut==="en_attente");
   // Livreur sees transferred orders
@@ -134,7 +155,7 @@ export default function App() {
     setOrders(prev=>prev.map(x=>x.shopifyId===o.shopifyId?{...x,...updates}:x));
     const body = { shopify_id:o.shopifyId, numero:o.numero||o.id, client:o.client, phone:o.phone, produit:o.produit,
       produit_id:o.produitId||"", quantite:o.quantite||1, prix:o.prix||0, commune:o.commune, adresse:o.adresse||o.commune,
-      date:o.date, heure:o.heure, is_manual:o.isManual||false,
+      date:o.date, heure:o.heure, is_manual:o.isManual||false, boutique_nom:o.boutiqueNom||"", boutique_id:o.boutiqueId||"",
       statut:updates.statut!==undefined?updates.statut:o.statut,
       motif:updates.motif!==undefined?updates.motif:o.motif,
       report_date:updates.reportDate!==undefined?(updates.reportDate||null):(o.reportDate||null),
@@ -146,13 +167,25 @@ export default function App() {
     await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",shopifyId:o.shopifyId,updates:body})});
   }
 
+  async function syncClient(o){
+    // Trouver la catégorie du produit
+    let categorie = "";
+    if(o.produitId){ const p=produits.find(x=>x.shopify_id===o.produitId); if(p) categorie=p.categorie||""; }
+    if(!categorie && o.produit){ const p=produits.find(x=>o.produit.includes(x.nom)); if(p) categorie=p.categorie||""; }
+    await fetch("/api/clients",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"sync",client:{
+      nom:o.client, phone:o.phone, produit:o.produit, categorie, commune:o.commune, prix:o.prix, date:o.date, boutiqueNom:o.boutiqueNom
+    }})});
+  }
+
   async function doLivrer(o){
     await updateOrder(o,{statut:"livree",livreurStatut:"livre"});
     // decrement stock
     if(o.produitId){
       const prod = produits.find(p=>p.shopify_id===o.produitId);
-      if(prod){ await fetch("/api/produits",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"decrement",id:prod.id,qte:o.quantite||1})}); loadAll(); }
+      if(prod){ await fetch("/api/produits",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"decrement",id:prod.id,qte:o.quantite||1})}); }
     }
+    await syncClient(o); // ajouter/mettre à jour le client dans la base
+    loadAll();
     setModal(null); toast(`✅ ${o.client} — Livré`);
   }
   function doMotif(o){
@@ -176,13 +209,21 @@ export default function App() {
     const c=[...(o.contacted||[])]; if(!c.includes("appel"))c.push("appel"); updateOrder(o,{contacted:c});
   }
   function transfer(o){
-    const lp = settings.livreur_phone||"";
+    // Ouvre le choix SMS / WhatsApp
+    setModal({type:"transfer", order:o});
+  }
+  function doTransfer(o, canal){
+    const lp = (settings.livreur_phone||"").replace(/\D/g,"");
     updateOrder(o,{transferred:true});
+    const msg=`🛵 Nouvelle livraison Yah-ni\n\n👤 ${o.client}\n📞 ${o.phone}\n📍 ${o.adresse||o.commune}\n📦 ${o.produit}${o.boutiqueNom?`\n🏪 ${o.boutiqueNom}`:""}\n\nMerci ✅`;
     if(lp){
-      const msg=`🛵 *Nouvelle livraison Yah-ni*\n\n👤 ${o.client}\n📞 ${o.phone}\n📍 ${o.adresse||o.commune}\n📦 ${o.produit}\n\nMerci ✅`;
-      window.open(`https://wa.me/${lp.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank");
+      if(canal==="sms") window.open(`sms:+${lp}?body=${encodeURIComponent(msg)}`,"_blank");
+      else window.open(`https://wa.me/${lp}?text=${encodeURIComponent(msg)}`,"_blank");
+    } else {
+      toast("⚠️ Ajoutez le numéro du livreur dans Paramètres","error");
     }
-    toast("📤 Transféré au livreur");
+    setModal(null);
+    toast(`📤 Transféré au livreur par ${canal==="sms"?"SMS":"WhatsApp"}`);
   }
   function livreurUpdate(o, statut){
     const map={en_route:"en_attente",arrive:"en_attente",livre:"livree"};
@@ -230,6 +271,18 @@ export default function App() {
   }
   async function delWish(id){ await fetch("/api/wishlist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",item:{id}})}); setWishlist(p=>p.filter(w=>w.id!==id)); }
 
+  async function addBoutique(){
+    if(!newBoutique.nom||!newBoutique.domaine||!newBoutique.token)return;
+    const r = await fetch("/api/boutiques",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",boutique:newBoutique})});
+    const d = await r.json();
+    if(d.error){ toast("❌ "+d.error,"error"); return; }
+    setNewBoutique({nom:"",domaine:"",token:"",couleur:"#E5B567"}); setShowAddBoutique(false); loadAll(); loadOrders(); toast("🏪 Boutique ajoutée");
+  }
+  async function delBoutique(id){ await fetch("/api/boutiques",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id})}); setBoutiques(p=>p.filter(b=>b.id!==id)); loadOrders(); toast("Boutique supprimée"); }
+  async function toggleBoutique(id,active){ await fetch("/api/boutiques",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"toggle",id,active})}); setBoutiques(p=>p.map(b=>b.id===id?{...b,active}:b)); loadOrders(); }
+  async function delClient(id){ await fetch("/api/clients",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id})}); setClients(p=>p.filter(c=>c.id!==id)); toast("Client supprimé"); }
+
+
   async function saveSettings(updates){
     setSettings(p=>({...p,...updates}));
     await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(updates)});
@@ -243,9 +296,9 @@ export default function App() {
 
   /* ═══ NAV ═══ */
   const navItems = isPatron
-    ? [{id:"commandes",icon:"📋",label:"Commandes"},{id:"bilan",icon:"📊",label:"Bilan"},{id:"depenses",icon:"📉",label:"Dépenses"},{id:"stock",icon:"📦",label:"Stock"},{id:"wishlist",icon:"⭐",label:"À commander"},{id:"reportees",icon:"⏰",label:"Reportées"}]
+    ? [{id:"commandes",icon:"📋",label:"Commandes"},{id:"relance",icon:"🔄",label:"Relancer"},{id:"clients",icon:"👥",label:"Clients"},{id:"bilan",icon:"📊",label:"Bilan"},{id:"depenses",icon:"📉",label:"Dépenses"},{id:"stock",icon:"📦",label:"Stock"},{id:"wishlist",icon:"⭐",label:"À commander"},{id:"boutiques",icon:"🏪",label:"Boutiques"},{id:"reportees",icon:"⏰",label:"Reportées"}]
     : isAssistante
-    ? [{id:"commandes",icon:"📋",label:"Commandes"},{id:"stock",icon:"📦",label:"Stock"},{id:"reportees",icon:"⏰",label:"Reportées"}]
+    ? [{id:"commandes",icon:"📋",label:"Commandes"},{id:"relance",icon:"🔄",label:"Relancer"},{id:"stock",icon:"📦",label:"Stock"},{id:"reportees",icon:"⏰",label:"Reportées"}]
     : [{id:"livraisons",icon:"🛵",label:"Mes livraisons"}];
 
   const beneficeJour = livrees.reduce((s,o)=>s+(o.prix||0)-o.livraison,0);
@@ -281,6 +334,7 @@ export default function App() {
           {/* ═══ COMMANDES ═══ */}
           {tab==="commandes" && (isPatron||isAssistante) && (
             <div className="fadeIn">
+              <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:22}}>
                 <Stat label="Total du jour" value={todayOrders.length} icon="📦" color="#E5B567" sub={`${abidjan.length} Abidjan`}/>
                 <Stat label="Livrées" value={livrees.length} icon="✅" color="#2BB673" sub={`${todayOrders.length?Math.round(livrees.length/todayOrders.length*100):0}%`}/>
@@ -295,7 +349,7 @@ export default function App() {
                         <span style={{fontWeight:700,fontSize:14,color:c}}>{t}</span>
                         <span style={{marginLeft:"auto",background:c,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{items.length}</span>
                       </div>
-                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)}/>)}
+                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
                     </div>
                   ))}
                 </div>
@@ -329,11 +383,17 @@ export default function App() {
           {/* ═══ WISHLIST ═══ */}
           {tab==="wishlist" && isPatron && <WishlistTab items={wishlist} onAdd={()=>setShowAddWish(true)} onDel={delWish}/>}
 
+          {tab==="boutiques" && isPatron && <BoutiquesTab boutiques={boutiques} onAdd={()=>setShowAddBoutique(true)} onDel={delBoutique} onToggle={toggleBoutique}/>}
+
+          {tab==="relance" && (isPatron||isAssistante) && <RelanceTab orders={orders} settings={settings} toast={toast}/>}
+
+          {tab==="clients" && isPatron && <ClientsTab clients={clients} settings={settings} toast={toast} onDel={delClient}/>}
+
           {/* ═══ REPORTÉES ═══ */}
           {tab==="reportees" && (isPatron||isAssistante) && (
             <div className="fadeIn">
               <div style={{background:"#FBF4E6",border:"1px solid #F0DFB8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#8A6D2F"}}>⏰ Ces commandes réapparaissent automatiquement le jour choisi</div>
-              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)}/>)}
+              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
             </div>
           )}
         </div>
@@ -373,10 +433,29 @@ export default function App() {
         </div>
       </Sheet>}
 
+      {modal?.type==="transfer"&&<Sheet onClose={()=>setModal(null)} title="📤 Transférer au livreur">
+        <div style={{textAlign:"center",padding:"4px 0 18px"}}>
+          <p style={{fontWeight:600,fontSize:15}}>{modal.order.client}</p>
+          <p style={{color:"#5B6B8C",fontSize:13,marginTop:2}}>📍 {modal.order.adresse||modal.order.commune}</p>
+          {!settings.livreur_phone&&<p style={{color:"#E5484D",fontSize:12,marginTop:8}}>⚠️ Aucun numéro livreur configuré (Paramètres)</p>}
+        </div>
+        <p style={{fontSize:13,color:"#5B6B8C",marginBottom:12,textAlign:"center"}}>Comment envoyer la commande au livreur ?</p>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>doTransfer(modal.order,"sms")} className="btn" style={{flex:1,padding:"14px",background:"#E8F1FE",color:"#2563EB",flexDirection:"column",gap:4,height:"auto"}}>
+            <span style={{fontSize:24}}>📱</span> <span>Par SMS</span>
+          </button>
+          <button onClick={()=>doTransfer(modal.order,"whatsapp")} className="btn" style={{flex:1,padding:"14px",background:"#E3F7EE",color:"#1E8E54",flexDirection:"column",gap:4,height:"auto"}}>
+            <span style={{fontSize:24}}>💬</span> <span>Par WhatsApp</span>
+          </button>
+        </div>
+        <button onClick={()=>setModal(null)} className="btn btn-outline" style={{width:"100%",marginTop:10}}>Annuler</button>
+      </Sheet>}
+
       {showAddOrder&&<AddOrderSheet newOrder={newOrder} setNewOrder={setNewOrder} produits={produits} onClose={()=>setShowAddOrder(false)} onAdd={addOrderManual}/>}
       {showAddProd&&<AddProdSheet newProd={newProd} setNewProd={setNewProd} onClose={()=>setShowAddProd(false)} onAdd={addProduit}/>}
       {showAddDep&&<AddDepSheet newDep={newDep} setNewDep={setNewDep} onClose={()=>setShowAddDep(false)} onAdd={addDepense}/>}
       {showAddWish&&<AddWishSheet newWish={newWish} setNewWish={setNewWish} onClose={()=>setShowAddWish(false)} onAdd={addWish}/>}
+      {showAddBoutique&&<AddBoutiqueSheet newBoutique={newBoutique} setNewBoutique={setNewBoutique} onClose={()=>setShowAddBoutique(false)} onAdd={addBoutique}/>}
       {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron}/>}
     </div>
   );
@@ -509,8 +588,35 @@ function Sidebar({role,navItems,tab,setTab,reportees,todayOrders,livrees,enAtten
 function Loader({text}){return (<div style={{textAlign:"center",padding:60}}><Spin size={32}/><p style={{color:"#9AA8C4",marginTop:14,fontSize:14}}>{text}</p></div>);}
 function Empty({icon,title,sub}){return (<div style={{textAlign:"center",padding:60,color:"#9AA8C4"}}><div style={{fontSize:46,marginBottom:12}}>{icon}</div><p style={{fontSize:16,fontWeight:600,marginBottom:6}}>{title}</p>{sub?<p style={{fontSize:13}}>{sub}</p>:null}</div>);}
 
-function OrderCard({o,i,isPatron,onLivrer,onMotif,onWA,onCall,onTransfer}){
-  const isLivree=o.statut==="livree",isBad=o.statut==="non_livree",isRep=o.statut==="reportee";
+function DateNav({viewDate,setViewDate}){
+  const TODAY = new Date().toISOString().split("T")[0];
+  function shift(days){
+    const d = new Date(viewDate); d.setDate(d.getDate()+days);
+    setViewDate(d.toISOString().split("T")[0]);
+  }
+  const dObj = new Date(viewDate);
+  const isToday = viewDate===TODAY;
+  const label = dObj.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
+  const yest = new Date(); yest.setDate(yest.getDate()-1);
+  const isYesterday = viewDate===yest.toISOString().split("T")[0];
+  return (
+    <div className="card" style={{padding:"10px 12px",marginBottom:18,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <button onClick={()=>shift(-1)} style={{width:38,height:38,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",fontSize:16,color:"#5B6B8C"}}>‹</button>
+      <div style={{flex:1,textAlign:"center",minWidth:140}}>
+        <div style={{fontSize:15,fontWeight:700,textTransform:"capitalize"}}>{isToday?"Aujourd'hui":isYesterday?"Hier":label}</div>
+        {!isToday&&<div style={{fontSize:11,color:"#9AA8C4",textTransform:"capitalize"}}>{label}</div>}
+      </div>
+      <button onClick={()=>shift(1)} style={{width:38,height:38,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",fontSize:16,color:"#5B6B8C"}}>›</button>
+      <input type="date" value={viewDate} onChange={e=>setViewDate(e.target.value)} style={{padding:"9px 12px",borderRadius:10,border:"1.5px solid #E8ECF4",background:"#fff",fontSize:13,fontFamily:"inherit",outline:"none",color:"#0F1B3C"}}/>
+      {!isToday&&<button onClick={()=>setViewDate(TODAY)} style={{padding:"9px 14px",borderRadius:10,border:"none",background:"#FBF4E6",color:"#C99A4B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Aujourd'hui</button>}
+    </div>
+  );
+}
+
+function OrderCard({o,i,isPatron,onLivrer,onMotif,onWA,onCall,onTransfer,viewDate}){
+  const isDue = o.statut==="reportee" && o.reportDate===viewDate; // reportée arrivée à échéance → ré-actionnable
+  const isLivree=o.statut==="livree",isBad=o.statut==="non_livree",isRep=o.statut==="reportee" && !isDue;
+  const actionnable = o.statut==="en_attente" || isDue;
   const c=o.contacted||[], bc=badgeColor(o.commune);
   return (
     <div className="card" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${isLivree?"#2BB673":isBad?"#E5484D":isRep?"#E5B567":"#E8ECF4"}`}}>
@@ -519,6 +625,7 @@ function OrderCard({o,i,isPatron,onLivrer,onMotif,onWA,onCall,onTransfer}){
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,flexWrap:"wrap"}}>
             <span style={{fontSize:10,color:"#9AA8C4",fontFamily:"monospace"}}>{o.numero||o.id}</span>
             <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:bc+"18",color:bc,fontWeight:600}}>{o.commune}</span>
+            {o.boutiqueNom&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:(o.boutiqueCouleur||"#E5B567")+"22",color:o.boutiqueCouleur||"#C99A4B",fontWeight:700}}>🏪 {o.boutiqueNom}</span>}
             {o.isManual&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>✍️</span>}
             {o.wasReported&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>↩️ Reporté</span>}
           </div>
@@ -534,6 +641,7 @@ function OrderCard({o,i,isPatron,onLivrer,onMotif,onWA,onCall,onTransfer}){
           {isLivree&&<span style={{fontSize:11,padding:"3px 8px",borderRadius:20,background:"#E3F7EE",color:"#1E8E54",fontWeight:600}}>✓ Livré</span>}
           {isBad&&<span style={{fontSize:11,padding:"3px 8px",borderRadius:20,background:"#FDEAEA",color:"#C0392B",fontWeight:600}}>✗ Échoué</span>}
           {isRep&&<span style={{fontSize:11,padding:"3px 8px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>⏰ Reporté</span>}
+          {isDue&&<span style={{fontSize:11,padding:"3px 8px",borderRadius:20,background:"#FEF3C7",color:"#B45309",fontWeight:700}}>↩️ Reporté à aujourd'hui</span>}
         </div>
       </div>
       {(c.length>0||o.transferred)&&<div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
@@ -541,12 +649,12 @@ function OrderCard({o,i,isPatron,onLivrer,onMotif,onWA,onCall,onTransfer}){
         {c.includes("appel")&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>📞 Appelé</span>}
         {o.transferred&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>📤 Transféré</span>}
       </div>}
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:o.statut==="en_attente"?10:0}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:actionnable?10:0}}>
         <button onClick={onCall} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#7C3AED",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📞</button>
         <button onClick={onWA} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#1E8E54",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>💬 WA</button>
         {!o.transferred?<button onClick={onTransfer} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #F0DFB8",background:"#FBF4E6",color:"#C99A4B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📤 Livreur</button>:<span style={{fontSize:11,color:"#C99A4B",fontWeight:500,padding:"6px 2px"}}>✓ Transféré</span>}
       </div>
-      {o.statut==="en_attente"&&<div style={{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid #F2F4F8"}}>
+      {actionnable&&<div style={{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid #F2F4F8"}}>
         <button onClick={onLivrer} style={{flex:1,padding:9,borderRadius:10,border:"none",cursor:"pointer",background:"#E3F7EE",color:"#1E8E54",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>✓ Livré</button>
         <button onClick={onMotif} style={{flex:1,padding:9,borderRadius:10,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>✗ Problème</button>
       </div>}
@@ -598,6 +706,16 @@ function Bilan({orders,depenses,produits,mode,setMode,date,setDate,setTab}){
   const reel=brut-totalDep;
   const taux=subset.length?Math.round(livrees.length/subset.length*100):0;
   const parCat=CAT_DEP.map(c=>({...c,total:depSub.filter(d=>d.categorie===c.id).reduce((s,d)=>s+d.montant,0)})).filter(c=>c.total>0);
+  // Bilan par produit (sur les commandes livrées)
+  const parProduit={};
+  livrees.forEach(o=>{
+    const key=o.produit||"Autre";
+    if(!parProduit[key])parProduit[key]={nom:key,qte:0,encaisse:0,nbCommandes:0};
+    parProduit[key].qte+=o.quantite||1;
+    parProduit[key].encaisse+=o.prix||0;
+    parProduit[key].nbCommandes+=1;
+  });
+  const produitsList=Object.values(parProduit).sort((a,b)=>b.encaisse-a.encaisse);
   return (
     <div className="fadeIn">
       <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
@@ -638,6 +756,28 @@ function Bilan({orders,depenses,produits,mode,setMode,date,setDate,setTab}){
         <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#5B6B8C",flexWrap:"wrap",gap:8}}>
           <span>✅ {livrees.length} livrées</span><span>✗ {subset.filter(o=>o.statut==="non_livree").length} échouées</span><span>⏳ {subset.filter(o=>o.statut==="en_attente").length} attente</span><span>Total {subset.length}</span>
         </div>
+      </div>
+
+      <div className="card" style={{padding:20,marginTop:18}}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>📦 Bilan par produit</div>
+        {produitsList.length===0?<p style={{fontSize:13,color:"#CBD5E8"}}>Aucune vente livrée sur cette période</p>:
+          produitsList.map((p,i)=>{
+            const maxEnc=produitsList[0].encaisse||1;
+            const pct=Math.round((p.encaisse/maxEnc)*100);
+            return (
+              <div key={p.nom} style={{marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                  <span style={{fontSize:13,fontWeight:600,flex:1,marginRight:8}}>{p.nom}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:"#2BB673"}}>{fmt(p.encaisse)} F</span>
+                </div>
+                <div style={{background:"#F2F4F8",borderRadius:20,height:8,overflow:"hidden",marginBottom:4}}>
+                  <div style={{width:pct+"%",height:"100%",background:"linear-gradient(90deg,#E5B567,#F0C674)",borderRadius:20,transition:"width .6s ease"}}/>
+                </div>
+                <div style={{fontSize:11,color:"#9AA8C4"}}>{p.qte} unités vendues · {p.nbCommandes} commande{p.nbCommandes>1?"s":""}</div>
+              </div>
+            );
+          })
+        }
       </div>
     </div>
   );
@@ -836,6 +976,173 @@ function AddWishSheet({newWish,setNewWish,onClose,onAdd}){
 }
 
 function Field({label,children}){return <div><label style={{display:"block",fontSize:12,color:"#5B6B8C",marginBottom:5,fontWeight:500}}>{label}</label>{children}</div>;}
+
+/* ════════ RELANCE CLIENTS ÉCHOUÉS ════════ */
+function RelanceTab({orders,settings,toast}){
+  const echoues = orders.filter(o=>o.statut==="non_livree");
+  // grouper par produit
+  const groupes = {};
+  echoues.forEach(o=>{ const k=o.produit||"Autre"; if(!groupes[k])groupes[k]=[]; groupes[k].push(o); });
+  const [tpl,setTpl] = useState("Bonjour {nom} 👋\n\nVotre commande Yah-ni Store n'a pas pu être livrée. Souhaitez-vous la recevoir ? Nous sommes disponibles aujourd'hui pour vous livrer 📦\n\n{produit}\n\nMerci de nous confirmer 🙏");
+
+  function relancer(o){
+    const msg = tpl.replace("{nom}",o.client).replace("{produit}",o.produit).replace("{prix}",fmt(o.prix));
+    window.open(`https://wa.me/${(o.phone||"").replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank");
+  }
+
+  return (
+    <div className="fadeIn">
+      <div style={{background:"#FDEAEA",border:"1px solid #F5C2C2",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#C0392B"}}>🔄 Relancez les clients dont la commande a échoué. Chaque message rappelle le produit commandé. Vous validez chaque envoi (sûr pour votre compte WhatsApp).</div>
+
+      <div className="card" style={{padding:16,marginBottom:18}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>✏️ Message de relance (variables : {"{nom}"} {"{produit}"} {"{prix}"})</div>
+        <textarea value={tpl} onChange={e=>setTpl(e.target.value)} className="input" style={{minHeight:110,resize:"vertical"}}/>
+      </div>
+
+      {echoues.length===0?<Empty icon="✅" title="Aucune commande échouée" sub="Toutes vos commandes sont livrées ou en cours"/>:
+        Object.entries(groupes).map(([prod,items])=>(
+          <div key={prod} style={{marginBottom:22}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"8px 14px",background:"#FBF4E6",borderRadius:10}}>
+              <span style={{fontWeight:700,fontSize:14,color:"#C99A4B"}}>📦 {prod}</span>
+              <span style={{marginLeft:"auto",background:"#E5484D",color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{items.length}</span>
+            </div>
+            {items.map((o,i)=>(
+              <div key={o.shopifyId} className="card fadeIn" style={{padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:12,animation:`fadeIn .3s ease ${i*40}ms both`}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:14}}>{o.client}</div>
+                  <div style={{fontSize:12,color:"#9AA8C4"}}>📞 {o.phone} · {o.commune}{o.motif?` · ${o.motif}`:""}</div>
+                </div>
+                <button onClick={()=>relancer(o)} className="btn" style={{background:"linear-gradient(135deg,#25D366,#128C7E)",color:"#fff",padding:"9px 14px"}}>💬 Relancer</button>
+              </div>
+            ))}
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
+/* ════════ BASE CLIENTS PAR CATÉGORIE ════════ */
+function ClientsTab({clients,settings,toast,onDel}){
+  const [filtreCat,setFiltreCat] = useState("tout");
+  const [search,setSearch] = useState("");
+  const [pubMsg,setPubMsg] = useState("Bonjour {nom} 👋\n\nDe nouveaux produits viennent d'arriver chez Yah-ni Store ! 🛍️ Venez découvrir nos nouveautés.\n\nÀ bientôt 🙏");
+
+  // toutes les catégories présentes
+  const allCats = new Set();
+  clients.forEach(c=>(c.categories||"").split("|").filter(Boolean).forEach(cat=>allCats.add(cat)));
+  const cats = ["tout",...[...allCats]];
+
+  const filtered = clients.filter(c=>{
+    const okCat = filtreCat==="tout" || (c.categories||"").split("|").includes(filtreCat);
+    const okSearch = !search || c.nom?.toLowerCase().includes(search.toLowerCase()) || (c.phone||"").includes(search);
+    return okCat && okSearch;
+  });
+
+  function envoyerPub(c){
+    const msg = pubMsg.replace("{nom}",c.nom).replace("{produit}",(c.produits||"").split("|")[0]||"");
+    window.open(`https://wa.me/${(c.phone||"").replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank");
+  }
+
+  return (
+    <div className="fadeIn">
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:18}}>
+        <Stat label="Total clients" value={clients.length} icon="👥" color="#E5B567"/>
+        <Stat label="Catégories" value={[...allCats].length} icon="🏷️" color="#8B5CF6"/>
+        <Stat label="Filtrés" value={filtered.length} icon="🔍" color="#3B82F6"/>
+      </div>
+
+      <div style={{background:"#E8F1FE",border:"1px solid #BcDcFc",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:12,color:"#2563EB",lineHeight:1.5}}>
+        💡 Vos clients sont rangés automatiquement par produit/catégorie acheté. Pour la pub, l'envoi se fait client par client (1 clic = WhatsApp s'ouvre prêt) — c'est la méthode sûre qui protège votre numéro. L'envoi automatique en masse arrivera avec l'API officielle WhatsApp.
+      </div>
+
+      <div className="card" style={{padding:16,marginBottom:18}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>📢 Message publicitaire (variables : {"{nom}"} {"{produit}"})</div>
+        <textarea value={pubMsg} onChange={e=>setPubMsg(e.target.value)} className="input" style={{minHeight:90,resize:"vertical"}}/>
+      </div>
+
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Rechercher un client (nom ou téléphone)" className="input" style={{marginBottom:12}}/>
+
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {cats.map(c=><button key={c} onClick={()=>setFiltreCat(c)} style={{padding:"6px 14px",borderRadius:20,cursor:"pointer",background:filtreCat===c?"#0F1B3C":"#fff",color:filtreCat===c?"#fff":"#5B6B8C",fontSize:12,fontWeight:600,fontFamily:"inherit",border:"1px solid #E8ECF4"}}>{c==="tout"?"🌐 Tous":`🏷️ ${c}`}</button>)}
+      </div>
+
+      {filtered.length===0?<Empty icon="👥" title="Aucun client" sub="Les clients s'ajoutent automatiquement à chaque livraison confirmée"/>:
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+        {filtered.map((c,i)=>(
+          <div key={c.id} className="card fadeIn" style={{padding:16,animation:`fadeIn .3s ease ${i*30}ms both`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:15}}>{c.nom}</div>
+                <div style={{fontSize:12,color:"#9AA8C4"}}>📞 {c.phone}</div>
+              </div>
+              <button onClick={()=>onDel(c.id)} style={{width:28,height:28,borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#9AA8C4",cursor:"pointer",fontSize:12}}>🗑</button>
+            </div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+              {(c.categories||"").split("|").filter(Boolean).map(cat=><span key={cat} style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>🏷️ {cat}</span>)}
+            </div>
+            <div style={{display:"flex",gap:12,marginBottom:12,fontSize:12,color:"#5B6B8C"}}>
+              <span>🛍️ {c.nb_commandes} cmd</span>
+              <span>💰 {fmt(c.total_depense)} F</span>
+            </div>
+            <button onClick={()=>envoyerPub(c)} className="btn" style={{width:"100%",background:"linear-gradient(135deg,#25D366,#128C7E)",color:"#fff",padding:"9px"}}>📢 Envoyer la pub</button>
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+/* ════════ BOUTIQUES ════════ */
+function BoutiquesTab({boutiques,onAdd,onDel,onToggle}){
+  return (
+    <div className="fadeIn">
+      <div style={{background:"#FBF4E6",border:"1px solid #F0DFB8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#8A6D2F"}}>🏪 Ajoutez vos boutiques Shopify. Les commandes de toutes les boutiques actives s'affichent ensemble, chacune avec son nom.</div>
+      <button onClick={onAdd} style={{width:"100%",padding:14,borderRadius:14,border:"2px dashed #F0DFB8",background:"#FFFBEB",color:"#C99A4B",fontSize:14,fontWeight:600,cursor:"pointer",marginBottom:18,fontFamily:"inherit"}}>➕ Ajouter une boutique Shopify</button>
+      {boutiques.length===0?<Empty icon="🏪" title="Aucune boutique" sub="Ajoutez votre première boutique Shopify"/>:
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+        {boutiques.map(b=>(
+          <div key={b.id} className="card fadeIn" style={{padding:18,borderLeft:`4px solid ${b.couleur||"#E5B567"}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+              <div style={{width:44,height:44,borderRadius:12,background:(b.couleur||"#E5B567")+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🏪</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:15}}>{b.nom}</div>
+                <div style={{fontSize:11,color:"#9AA8C4"}}>{b.domaine}</div>
+              </div>
+              <span style={{fontSize:10,padding:"3px 8px",borderRadius:20,background:b.active?"#E3F7EE":"#F2F4F8",color:b.active?"#1E8E54":"#9AA8C4",fontWeight:600}}>{b.active?"● Active":"○ Inactive"}</span>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>onToggle(b.id,!b.active)} style={{flex:1,padding:9,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",color:"#5B6B8C",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{b.active?"⏸️ Désactiver":"▶️ Activer"}</button>
+              <button onClick={()=>onDel(b.id)} style={{width:38,padding:9,borderRadius:10,border:"1px solid #FDEAEA",background:"#FEF2F2",color:"#E5484D",cursor:"pointer",fontSize:14}}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+function AddBoutiqueSheet({newBoutique,setNewBoutique,onClose,onAdd}){
+  const couleurs=["#E5B567","#3B82F6","#2BB673","#8B5CF6","#EC4899","#F2922C"];
+  return <Sheet onClose={onClose} title="🏪 Ajouter une boutique Shopify">
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <Field label="Nom de la boutique *"><input value={newBoutique.nom} onChange={e=>setNewBoutique(p=>({...p,nom:e.target.value}))} placeholder="Ex: Yah-ni Store" className="input"/></Field>
+      <Field label="Domaine Shopify *"><input value={newBoutique.domaine} onChange={e=>setNewBoutique(p=>({...p,domaine:e.target.value}))} placeholder="yahni.myshopify.com" className="input"/></Field>
+      <Field label="Token API Shopify *"><input value={newBoutique.token} onChange={e=>setNewBoutique(p=>({...p,token:e.target.value}))} placeholder="atkn_... ou shpat_..." className="input"/></Field>
+      <Field label="Couleur d'identification">
+        <div style={{display:"flex",gap:8}}>{couleurs.map(c=><button key={c} onClick={()=>setNewBoutique(p=>({...p,couleur:c}))} style={{width:36,height:36,borderRadius:10,border:newBoutique.couleur===c?"3px solid #0F1B3C":"1px solid #E8ECF4",background:c,cursor:"pointer"}}/>)}</div>
+      </Field>
+      <div style={{background:"#F7F8FB",borderRadius:10,padding:12,fontSize:11,color:"#5B6B8C",lineHeight:1.5}}>
+        💡 Le token se trouve dans Shopify → Paramètres → Applications et canaux de vente → Développer des apps → votre app → Identifiants API → "Jeton d'accès Admin API"
+      </div>
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={onClose} className="btn btn-outline" style={{flex:1}}>Annuler</button>
+        <button onClick={onAdd} disabled={!newBoutique.nom||!newBoutique.domaine||!newBoutique.token} className="btn btn-gold" style={{flex:2}}>✓ Ajouter la boutique</button>
+      </div>
+    </div>
+  </Sheet>;
+}
+
 
 /* ════════ SETTINGS ════════ */
 function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,isPatron}){
