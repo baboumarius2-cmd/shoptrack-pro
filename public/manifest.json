@@ -1,0 +1,16 @@
+{
+  "name": "Yah-ni Store",
+  "short_name": "Yah-ni",
+  "description": "Gestion intelligente de vos commandes, livraisons et clients",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0F1B3C",
+  "theme_color": "#0F1B3C",
+  "lang": "fr",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
