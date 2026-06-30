@@ -42,11 +42,11 @@ function Sheet({children,onClose,title}){
 }
 function Stat({label,value,icon,color,sub}){
   return (
-    <div className="card fadeIn" style={{padding:16,position:"relative",overflow:"hidden"}}>
+    <div className="card fadeIn stat-card" style={{padding:16,position:"relative",overflow:"hidden"}}>
       <div style={{position:"absolute",top:-6,right:-6,fontSize:42,opacity:0.05}}>{icon}</div>
-      <div style={{fontSize:11,color:"#5B6B8C",fontWeight:600,textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>{label}</div>
-      <div style={{fontSize:22,fontWeight:800,color:color||"#0F1B3C",letterSpacing:"-.5px"}}>{value}</div>
-      {sub&&<div style={{fontSize:11,color:"#9AA8C4",marginTop:3}}>{sub}</div>}
+      <div className="stat-label" style={{fontSize:11,color:"var(--text-soft,#5B6B8C)",fontWeight:600,textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>{label}</div>
+      <div className="stat-value" style={{fontSize:22,fontWeight:800,color:color||"var(--text,#0F1B3C)",letterSpacing:"-.5px"}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:"var(--text-mute,#9AA8C4)",marginTop:3}}>{sub}</div>}
     </div>
   );
 }

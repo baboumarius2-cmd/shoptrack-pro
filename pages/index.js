@@ -32,6 +32,8 @@ export default function App() {
   const [bilanDate, setBilanDate] = useState(TODAY);
   const [viewDate, setViewDate] = useState(TODAY);
   const [depFilter, setDepFilter] = useState("tout");
+  const [theme, setTheme] = useState("clair");
+  const [mobileMenu, setMobileMenu] = useState(false);
 
   const [showAddProd, setShowAddProd] = useState(false);
   const [newProd, setNewProd] = useState({nom:"",emoji:"📦",categorie:"",stockInitial:"",coutAchat:"",coutFret:"",prixVente:"",conditionnement:"",seuilAlerte:"10",image:""});
@@ -126,6 +128,7 @@ export default function App() {
       const [s,p,d,w,b,cl] = await Promise.all([ fetch("/api/settings"), fetch("/api/produits"), fetch("/api/depenses"), fetch("/api/wishlist"), fetch("/api/boutiques"), fetch("/api/clients") ]);
       const sj = await s.json(); setSettings(sj||{});
       if(sj?.msg_template) setMsgTemplate(sj.msg_template);
+      if(sj?.theme) setTheme(sj.theme);
       setProduits(await p.json()||[]);
       setDepenses(await d.json()||[]);
       setWishlist(await w.json()||[]);
@@ -305,32 +308,91 @@ export default function App() {
   const depJour = depenses.filter(d=>d.date===TODAY).reduce((s,d)=>s+d.montant,0);
 
   return (
-    <div style={{minHeight:"100vh",background:"#F7F8FB",display:"flex"}}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Plus Jakarta Sans',sans-serif}@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}@keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}@keyframes scaleIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#CBD5E8;border-radius:5px}`}</style>
+    <div className={`app-root theme-${theme}`} style={{minHeight:"100vh",display:"flex"}}>
+      <style>{`
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Plus Jakarta Sans',sans-serif}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-thumb{background:#CBD5E8;border-radius:5px}
+
+/* THÈME CLAIR (défaut) */
+.theme-clair{--bg:#F7F8FB;--card:#fff;--text:#0F1B3C;--text-soft:#5B6B8C;--text-mute:#9AA8C4;--border:#E8ECF4;--input-bg:#fff;--topbar-bg:#fff;}
+/* THÈME SOMBRE */
+.theme-sombre{--bg:#0B1220;--card:#16213E;--text:#EAF0FF;--text-soft:#9FB0D0;--text-mute:#6B7B9C;--border:#243355;--input-bg:#1A2742;--topbar-bg:#111B30;}
+
+.app-root{background:var(--bg);color:var(--text);}
+.app-root .card{background:var(--card)!important;border-color:var(--border)!important;}
+.app-root .topbar{background:var(--topbar-bg)!important;border-color:var(--border)!important;}
+.app-root .input{background:var(--input-bg)!important;color:var(--text)!important;border-color:var(--border)!important;}
+
+/* En mode sombre, adoucir les textes très foncés codés en dur */
+.theme-sombre .order-card .order-client{color:var(--text)!important;}
+.theme-sombre h1,.theme-sombre h2,.theme-sombre h3{color:var(--text);}
+
+/* Barre de navigation mobile (cachée sur ordinateur) */
+.mobile-nav{display:none;}
+.mobile-topbar-btn{display:none;}
+
+@media (max-width:768px){
+  /* Cacher la sidebar desktop, afficher la nav du bas */
+  .desktop-sidebar{display:none!important;}
+  .main-content{margin-left:0!important;padding-bottom:78px!important;}
+  .content-pad{padding:14px!important;}
+  .mobile-nav{display:flex!important;}
+  .mobile-topbar-btn{display:flex!important;}
+
+  /* Textes plus gros sur mobile */
+  .app-root{font-size:16px;}
+  .stat-value{font-size:26px!important;}
+  .stat-label{font-size:12px!important;}
+  .order-client{font-size:17px!important;}
+  .order-produit{font-size:14px!important;}
+  .btn{font-size:15px!important;padding:13px 18px!important;}
+  .order-action-btn{padding:13px!important;font-size:15px!important;}
+  .topbar-title{font-size:19px!important;}
+
+  /* Cartes plus aérées */
+  .order-card{padding:18px!important;margin-bottom:14px!important;}
+  .stat-card{padding:18px!important;}
+}
+
+/* Barre nav du bas */
+.mobile-nav{position:fixed;bottom:0;left:0;right:0;height:66px;background:var(--topbar-bg);border-top:1px solid var(--border);z-index:90;align-items:center;justify-content:space-around;padding:0 4px;box-shadow:0 -2px 16px rgba(15,27,60,0.08);}
+.mobile-nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;font-family:inherit;padding:6px 8px;border-radius:12px;flex:1;max-width:80px;}
+.mobile-nav-item .ic{font-size:21px;}
+.mobile-nav-item .lb{font-size:10px;font-weight:600;}
+      `}</style>
 
       {notif&&<div style={{position:"fixed",top:20,right:20,zIndex:1000,background:notif.type==="error"?"#FDEAEA":notif.type==="info"?"#E8F1FE":"#E3F7EE",border:`1px solid ${notif.type==="error"?"#F5C2C2":notif.type==="info"?"#BcDcFc":"#A8E6C9"}`,borderRadius:12,padding:"12px 16px",boxShadow:"0 8px 24px rgba(15,27,60,0.14)",fontSize:13,fontWeight:600,color:notif.type==="error"?"#C0392B":notif.type==="info"?"#2563EB":"#1E8E54",animation:"scaleIn .2s ease",maxWidth:320}}>{notif.msg}</div>}
 
       {/* SIDEBAR (desktop) — hidden for livreur */}
-      {!isLivreur && <Sidebar role={role} navItems={navItems} tab={tab} setTab={setTab} reportees={reportees} todayOrders={todayOrders} livrees={livrees} enAttente={enAttente} beneficeJour={beneficeJour} depJour={depJour} isPatron={isPatron} onSettings={()=>setShowSettings(true)} onLogout={()=>{setRole(null);setScreen("login");setLoginRole(null);}}/>}
+      {!isLivreur && <div className="desktop-sidebar"><Sidebar role={role} navItems={navItems} tab={tab} setTab={setTab} reportees={reportees} todayOrders={todayOrders} livrees={livrees} enAttente={enAttente} beneficeJour={beneficeJour} depJour={depJour} isPatron={isPatron} theme={theme} onSettings={()=>setShowSettings(true)} onLogout={()=>{setRole(null);setScreen("login");setLoginRole(null);}}/></div>}
 
-      <div style={{marginLeft:isLivreur?0:240,flex:1,minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+      <div className="main-content" style={{marginLeft:isLivreur?0:240,flex:1,minHeight:"100vh",display:"flex",flexDirection:"column"}}>
         {/* TOPBAR */}
-        <div style={{background:"#fff",borderBottom:"1px solid #E8ECF4",padding:"0 20px",height:62,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
+        <div className="topbar" style={{borderBottom:"1px solid #E8ECF4",padding:"0 16px",height:62,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
-            {isLivreur&&<div style={{width:36,height:36,borderRadius:10,background:ROLES.livreur.grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🛵</div>}
+            <div style={{width:36,height:36,borderRadius:10,background:ROLES[role].grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}} className="mobile-topbar-btn">{ROLES[role].icon}</div>
             <div>
-              <h1 style={{fontSize:17,fontWeight:700}}>{navItems.find(n=>n.id===tab)?.icon} {navItems.find(n=>n.id===tab)?.label}</h1>
-              <p style={{fontSize:11,color:"#9AA8C4"}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}</p>
+              <h1 className="topbar-title" style={{fontSize:17,fontWeight:700}}>{navItems.find(n=>n.id===tab)?.icon} {navItems.find(n=>n.id===tab)?.label}</h1>
+              <p style={{fontSize:11,color:"var(--text-mute)"}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}</p>
             </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <button onClick={()=>{loadOrders();toast("🔄 Actualisé");}} style={{width:38,height:38,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:refreshing?"#E5B567":"#5B6B8C"}}>{refreshing?<Spin size={16}/>:"🔄"}</button>
-            {isLivreur&&<button onClick={()=>{setRole(null);setScreen("login");setLoginRole(null);}} style={{padding:"8px 14px",borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",fontSize:13,color:"#5B6B8C",fontWeight:600}}>🚪 Quitter</button>}
+            <button onClick={()=>setTheme(t=>{const nt=t==="clair"?"sombre":"clair"; saveSettings({theme:nt}); return nt;})} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:16}}>{theme==="clair"?"🌙":"☀️"}</button>
+            <button onClick={()=>{loadOrders(viewDate);toast("🔄 Actualisé");}} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:refreshing?"#E5B567":"var(--text-soft)"}}>{refreshing?<Spin size={16}/>:"🔄"}</button>
+            {isLivreur&&<button onClick={()=>{setRole(null);setScreen("login");setLoginRole(null);}} style={{padding:"8px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:13,color:"var(--text-soft)",fontWeight:600}}>🚪</button>}
             {(isPatron||isAssistante)&&tab==="commandes"&&<button onClick={()=>setShowAddOrder(true)} className="btn btn-gold" style={{padding:"9px 16px"}}>✍️ Ajouter</button>}
           </div>
         </div>
 
-        <div style={{flex:1,padding:20,maxWidth:1240,margin:"0 auto",width:"100%"}}>
+        <div className="content-pad" style={{flex:1,padding:20,maxWidth:1240,margin:"0 auto",width:"100%"}}>
           {/* ═══ COMMANDES ═══ */}
           {tab==="commandes" && (isPatron||isAssistante) && (
             <div className="fadeIn">
@@ -398,6 +460,41 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* BARRE NAVIGATION MOBILE */}
+      <div className="mobile-nav">
+        {navItems.slice(0,4).map(it=>(
+          <button key={it.id} onClick={()=>setTab(it.id)} className="mobile-nav-item" style={{background:tab===it.id?"rgba(229,181,103,0.15)":"none",color:tab===it.id?"#E5B567":"var(--text-mute)"}}>
+            <span className="ic">{it.icon}</span><span className="lb">{it.label}</span>
+          </button>
+        ))}
+        {!isLivreur&&<button onClick={()=>setMobileMenu(true)} className="mobile-nav-item" style={{color:"var(--text-mute)"}}>
+          <span className="ic">☰</span><span className="lb">Plus</span>
+        </button>}
+      </div>
+
+      {/* MENU "PLUS" MOBILE */}
+      {mobileMenu&&<div className="sheet-overlay" onClick={()=>setMobileMenu(false)}>
+        <div className="sheet" onClick={e=>e.stopPropagation()} style={{background:"var(--card)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+            <h3 style={{fontSize:17,fontWeight:700,color:"var(--text)"}}>Menu</h3>
+            <button onClick={()=>setMobileMenu(false)} style={{width:32,height:32,borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:15,color:"var(--text-soft)"}}>✕</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+            {navItems.map(it=>(
+              <button key={it.id} onClick={()=>{setTab(it.id);setMobileMenu(false);}} style={{padding:"18px 8px",borderRadius:14,border:`1.5px solid ${tab===it.id?"#E5B567":"var(--border)"}`,background:tab===it.id?"rgba(229,181,103,0.12)":"var(--card)",color:tab===it.id?"#E5B567":"var(--text-soft)",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                <span style={{fontSize:24}}>{it.icon}</span><span style={{fontSize:12,fontWeight:600}}>{it.label}</span>
+              </button>
+            ))}
+            <button onClick={()=>{setShowSettings(true);setMobileMenu(false);}} style={{padding:"18px 8px",borderRadius:14,border:"1.5px solid var(--border)",background:"var(--card)",color:"var(--text-soft)",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+              <span style={{fontSize:24}}>⚙️</span><span style={{fontSize:12,fontWeight:600}}>Paramètres</span>
+            </button>
+            <button onClick={()=>{setRole(null);setScreen("login");setLoginRole(null);}} style={{padding:"18px 8px",borderRadius:14,border:"1.5px solid var(--border)",background:"var(--card)",color:"#E5484D",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+              <span style={{fontSize:24}}>🚪</span><span style={{fontSize:12,fontWeight:600}}>Quitter</span>
+            </button>
+          </div>
+        </div>
+      </div>}
 
       {/* ═══ MODALS ═══ */}
       {modal?.type==="livrer"&&<Sheet onClose={()=>setModal(null)} title="Confirmer la livraison">
@@ -619,7 +716,7 @@ function OrderCard({o,i,isPatron,onLivrer,onMotif,onWA,onCall,onTransfer,viewDat
   const actionnable = o.statut==="en_attente" || isDue;
   const c=o.contacted||[], bc=badgeColor(o.commune);
   return (
-    <div className="card" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${isLivree?"#2BB673":isBad?"#E5484D":isRep?"#E5B567":"#E8ECF4"}`}}>
+    <div className="card order-card" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${isLivree?"#2BB673":isBad?"#E5484D":isRep?"#E5B567":"#E8ECF4"}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
         <div style={{flex:1}}>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,flexWrap:"wrap"}}>
@@ -629,8 +726,8 @@ function OrderCard({o,i,isPatron,onLivrer,onMotif,onWA,onCall,onTransfer,viewDat
             {o.isManual&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>✍️</span>}
             {o.wasReported&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>↩️ Reporté</span>}
           </div>
-          <div style={{fontWeight:700,fontSize:15,marginBottom:2}}>{o.client}</div>
-          <div style={{color:"#5B6B8C",fontSize:12,marginBottom:isPatron?4:0}}>📦 {o.produit}</div>
+          <div className="order-client" style={{fontWeight:700,fontSize:15,marginBottom:2,color:"var(--text)"}}>{o.client}</div>
+          <div className="order-produit" style={{color:"var(--text-soft)",fontSize:12,marginBottom:isPatron?4:0}}>📦 {o.produit}</div>
           {isPatron&&<div style={{fontSize:12,color:"#2BB673",fontWeight:600}}>{fmt(o.prix)} F <span style={{color:"#9AA8C4",fontWeight:400}}>· net {fmt((o.prix||0)-o.livraison)} F</span></div>}
           {o.note&&<div style={{fontSize:11,color:"#9AA8C4",marginTop:2}}>📝 {o.note}</div>}
           {o.motif&&<div style={{fontSize:11,color:"#5B6B8C",marginTop:2}}>Motif: {o.motif}</div>}
@@ -1167,7 +1264,7 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
     if(d.success){setPwdMsg("✅ Modifié !");setOldPwd("");setNewPwd("");}else setPwdMsg(d.error||"Erreur");
   }
   return (
-    <div style={{position:"fixed",inset:0,background:"#F7F8FB",zIndex:300,overflowY:"auto",animation:"fadeIn .2s ease"}}>
+    <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:300,overflowY:"auto",animation:"fadeIn .2s ease"}}>
       <div style={{maxWidth:680,margin:"0 auto",padding:20}}>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:28}}>
           <button onClick={onClose} style={{width:38,height:38,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",fontSize:18,color:"#5B6B8C"}}>←</button>
