@@ -83,13 +83,6 @@ function AppInner() {
     }
   },[]);
 
-  // Rafraîchissement automatique des commandes en arrière-plan (toutes les 60s)
-  useEffect(()=>{
-    if(screen!=="app") return;
-    const id = setInterval(()=>{ loadOrders(viewDate); },60000);
-    return ()=>clearInterval(id);
-  },[screen,viewDate,loadOrders]);
-
   function logout(){
     lsRemove("yahni_role");
     setRole(null); setScreen("login"); setLoginRole(null);
@@ -185,6 +178,13 @@ function AppInner() {
 
   useEffect(()=>{ if(screen==="app"){ loadAll(); loadOrders(viewDate); } },[screen]);
   useEffect(()=>{ if(screen==="app"){ loadOrders(viewDate); } },[viewDate]);
+
+  // Rafraîchissement automatique des commandes en arrière-plan (toutes les 60s)
+  useEffect(()=>{
+    if(screen!=="app") return;
+    const id = setInterval(()=>{ loadOrders(viewDate); },60000);
+    return ()=>clearInterval(id);
+  },[screen,viewDate,loadOrders]);
 
   /* ─ DERIVED ─ */
   // Orders to show today: created today OR reported to today
