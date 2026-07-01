@@ -54,33 +54,54 @@ export default function App() {
   const isLivreur = role === "livreur";
   const isAssistante = role === "assistante";
 
+  useEffect(()=>{
+    const saved = typeof window!=="undefined" ? localStorage.getItem("yahni_role") : null;
+    if(saved && ["patron","assistante","livreur"].includes(saved)){
+      setRole(saved); setScreen("app"); setTab(saved==="livreur"?"livraisons":"commandes");
+    }
+  },[]);
+
+  // Rafraîchissement automatique des commandes en arrière-plan (toutes les 60s)
+  useEffect(()=>{
+    if(screen!=="app") return;
+    const id = setInterval(()=>{ loadOrders(viewDate); },60000);
+    return ()=>clearInterval(id);
+  },[screen,viewDate,loadOrders]);
+
+  function logout(){
+    localStorage.removeItem("yahni_role");
+    setRole(null); setScreen("login"); setLoginRole(null);
+  }
+
   function toast(msg, type="success"){ setNotif({msg,type}); setTimeout(()=>setNotif(null),3000); }
 
   /* ─ AUTH ─ */
   async function doLogin(){
-    if(!pwd.trim())return;
+    if(pwd.length<4)return;
     setAuth(true); setErr("");
     try{
       const r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"login",role:loginRole,password:pwd})});
       const d = await r.json();
-      if(d.success){ setRole(loginRole); setScreen("app"); setPwd(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
-      else if(d.error==="no_password") setScreen("setup");
-      else setErr(d.error||"Mot de passe incorrect");
-    }catch{ setErr("Erreur de connexion. Vérifiez votre internet."); }
+      if(d.success){ localStorage.setItem("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setPwd(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
+      else if(d.error==="no_password") { setScreen("setup"); setPwd(""); }
+      else { setErr(d.error||"Code incorrect"); setPwd(""); }
+    }catch{ setErr("Erreur de connexion. Vérifiez votre internet."); setPwd(""); }
     setAuth(false);
   }
   async function doSetup(){
-    if(sPwd.length<4)return setSErr("Minimum 4 caractères");
-    if(sPwd!==sPwd2)return setSErr("Les mots de passe ne correspondent pas");
+    if(sPwd.length<4)return;
+    if(sPwd!==sPwd2){ setSErr("Les codes ne correspondent pas, recommencez"); setSPwd(""); setSPwd2(""); return; }
     setAuth(true);
     try{
       const r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup",role:loginRole,newPassword:sPwd})});
       const d = await r.json();
-      if(d.success){ setRole(loginRole); setScreen("app"); setSPwd(""); setSPwd2(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
-      else setSErr(d.error);
+      if(d.success){ localStorage.setItem("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setSPwd(""); setSPwd2(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
+      else { setSErr(d.error); setSPwd(""); setSPwd2(""); }
     }catch{ setSErr("Erreur. Réessayez."); }
     setAuth(false);
   }
+  useEffect(()=>{ if(screen==="login"&&loginRole&&pwd.length===4&&!auth) doLogin(); },[pwd]);
+  useEffect(()=>{ if(screen==="setup"&&sPwd.length===4&&sPwd2.length===4&&!auth) doSetup(); },[sPwd,sPwd2]);
 
   /* ─ DATA ─ */
   const loadOrders = useCallback(async(forDate)=>{
@@ -383,7 +404,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {notif&&<div style={{position:"fixed",top:20,right:20,zIndex:1000,background:notif.type==="error"?"#FDEAEA":notif.type==="info"?"#E8F1FE":"#E3F7EE",border:`1px solid ${notif.type==="error"?"#F5C2C2":notif.type==="info"?"#BcDcFc":"#A8E6C9"}`,borderRadius:12,padding:"12px 16px",boxShadow:"0 8px 24px rgba(15,27,60,0.14)",fontSize:13,fontWeight:600,color:notif.type==="error"?"#C0392B":notif.type==="info"?"#2563EB":"#1E8E54",animation:"scaleIn .2s ease",maxWidth:320}}>{notif.msg}</div>}
 
       {/* SIDEBAR (desktop) — hidden for livreur */}
-      {!isLivreur && <div className="desktop-sidebar"><Sidebar role={role} navItems={navItems} tab={tab} setTab={setTab} reportees={reportees} todayOrders={todayOrders} livrees={livrees} enAttente={enAttente} beneficeJour={beneficeJour} depJour={depJour} isPatron={isPatron} theme={theme} onSettings={()=>setShowSettings(true)} onLogout={()=>{setRole(null);setScreen("login");setLoginRole(null);}}/></div>}
+      {!isLivreur && <div className="desktop-sidebar"><Sidebar role={role} navItems={navItems} tab={tab} setTab={setTab} reportees={reportees} todayOrders={todayOrders} livrees={livrees} enAttente={enAttente} beneficeJour={beneficeJour} depJour={depJour} isPatron={isPatron} theme={theme} onSettings={()=>setShowSettings(true)} onLogout={logout}/></div>}
 
       <div className="main-content" style={{marginLeft:isLivreur?0:240,flex:1,minHeight:"100vh",display:"flex",flexDirection:"column"}}>
         {/* TOPBAR */}
@@ -398,7 +419,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             <button onClick={()=>setTheme(t=>{const nt=t==="clair"?"sombre":"clair"; saveSettings({theme:nt}); return nt;})} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:16}}>{theme==="clair"?"🌙":"☀️"}</button>
             <button onClick={()=>{loadOrders(viewDate);toast("🔄 Actualisé");}} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:refreshing?"#E5B567":"var(--text-soft)"}}>{refreshing?<Spin size={16}/>:"🔄"}</button>
-            {isLivreur&&<button onClick={()=>{setRole(null);setScreen("login");setLoginRole(null);}} style={{padding:"8px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:13,color:"var(--text-soft)",fontWeight:600}}>🚪</button>}
+            {isLivreur&&<button onClick={logout} style={{padding:"8px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:13,color:"var(--text-soft)",fontWeight:600}}>🚪</button>}
             {(isPatron||isAssistante)&&tab==="commandes"&&<button onClick={()=>setShowAddOrder(true)} className="btn btn-gold" style={{padding:"9px 16px"}}>✍️ Ajouter</button>}
           </div>
         </div>
@@ -500,7 +521,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
             <button onClick={()=>{setShowSettings(true);setMobileMenu(false);}} style={{padding:"18px 8px",borderRadius:14,border:"1.5px solid var(--border)",background:"var(--card)",color:"var(--text-soft)",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
               <span style={{fontSize:24}}>⚙️</span><span style={{fontSize:12,fontWeight:600}}>Paramètres</span>
             </button>
-            <button onClick={()=>{setRole(null);setScreen("login");setLoginRole(null);}} style={{padding:"18px 8px",borderRadius:14,border:"1.5px solid var(--border)",background:"var(--card)",color:"#E5484D",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+            <button onClick={logout} style={{padding:"18px 8px",borderRadius:14,border:"1.5px solid var(--border)",background:"var(--card)",color:"#E5484D",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
               <span style={{fontSize:24}}>🚪</span><span style={{fontSize:12,fontWeight:600}}>Quitter</span>
             </button>
           </div>
@@ -571,6 +592,28 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
 }
 
 /* ════════ LOGIN COMPONENTS ════════ */
+function PinPad({value,onChange,length=4,color}){
+  function press(d){ if(value.length>=length) onChange(d); else onChange(value+d); }
+  function back(){ onChange(value.slice(0,-1)); }
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"center",gap:14,marginBottom:26}}>
+        {Array.from({length}).map((_,i)=>(
+          <div key={i} style={{width:16,height:16,borderRadius:"50%",background:i<value.length?(color||"#E5B567"):"rgba(255,255,255,0.15)",border:"1.5px solid rgba(255,255,255,0.2)",transition:"background .15s"}}/>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,maxWidth:280,margin:"0 auto"}}>
+        {["1","2","3","4","5","6","7","8","9"].map(d=>(
+          <button key={d} onClick={()=>press(d)} style={{padding:"18px 0",borderRadius:14,border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.05)",color:"#fff",fontSize:20,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{d}</button>
+        ))}
+        <div/>
+        <button onClick={()=>press("0")} style={{padding:"18px 0",borderRadius:14,border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.05)",color:"#fff",fontSize:20,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>0</button>
+        <button onClick={back} style={{padding:"18px 0",borderRadius:14,border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.05)",color:"#FF8A8A",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⌫</button>
+      </div>
+    </div>
+  );
+}
+
 function LoginHome({onPick}){
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F1B3C 0%,#1A2B52 60%,#0F1B3C 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
@@ -613,14 +656,10 @@ function LoginPwd({role,pwd,setPwd,err,setErr,auth,onBack,onLogin}){
           <div style={{textAlign:"center",marginBottom:26}}>
             <div style={{width:56,height:56,borderRadius:16,background:r.grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 14px"}}>{r.icon}</div>
             <h2 style={{fontSize:21,fontWeight:700,color:"#fff"}}>Espace {r.label}</h2>
-            <p style={{color:"#9AA8C4",fontSize:13,marginTop:3}}>Entrez votre mot de passe</p>
+            <p style={{color:"#9AA8C4",fontSize:13,marginTop:3}}>{auth?"Vérification...":"Entrez votre code à 4 chiffres"}</p>
           </div>
-          <input type="password" value={pwd} onChange={e=>{setPwd(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&onLogin()} placeholder="••••••••" autoFocus
-            style={{width:"100%",padding:"14px 16px",borderRadius:12,border:`1.5px solid ${err?"#E5484D":"rgba(255,255,255,0.1)"}`,background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:18,textAlign:"center",letterSpacing:"4px",outline:"none",marginBottom:12,fontFamily:"inherit"}}/>
-          {err&&<p style={{color:"#FF8A8A",fontSize:12,textAlign:"center",marginBottom:12}}>{err}</p>}
-          <button onClick={onLogin} disabled={auth||!pwd} style={{width:"100%",padding:14,borderRadius:12,border:"none",cursor:pwd&&!auth?"pointer":"default",background:pwd&&!auth?r.grad:"rgba(255,255,255,0.06)",color:pwd&&!auth?"#0F1B3C":"#4A5878",fontSize:15,fontWeight:700,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            {auth?<><Spin size={18} c="#0F1B3C"/> Connexion...</>:"Se connecter →"}
-          </button>
+          {err&&<p style={{color:"#FF8A8A",fontSize:12,textAlign:"center",marginBottom:14}}>{err}</p>}
+          <PinPad value={pwd} onChange={setPwd} color={r.color}/>
         </div>
       </div>
     </div>
@@ -629,6 +668,7 @@ function LoginPwd({role,pwd,setPwd,err,setErr,auth,onBack,onLogin}){
 
 function SetupPwd({role,sPwd,setSPwd,sPwd2,setSPwd2,sErr,setSErr,auth,onSetup}){
   const r = ROLES[role];
+  const step = sPwd.length<4 ? 1 : 2;
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F1B3C,#1A2B52)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
@@ -636,17 +676,16 @@ function SetupPwd({role,sPwd,setSPwd,sPwd2,setSPwd2,sErr,setSErr,auth,onSetup}){
         <div style={{background:"rgba(255,255,255,0.05)",backdropFilter:"blur(20px)",borderRadius:22,padding:32,border:"1px solid rgba(255,255,255,0.08)"}}>
           <div style={{textAlign:"center",marginBottom:26}}>
             <div style={{fontSize:42,marginBottom:12}}>🔐</div>
-            <h2 style={{fontSize:20,fontWeight:700,color:"#fff"}}>Créer votre mot de passe</h2>
+            <h2 style={{fontSize:20,fontWeight:700,color:"#fff"}}>{step===1?"Choisissez un code à 4 chiffres":"Confirmez votre code"}</h2>
             <p style={{color:"#9AA8C4",fontSize:13,marginTop:3}}>Première connexion · {r.label}</p>
           </div>
-          {[{v:sPwd,s:setSPwd,p:"Mot de passe (min. 4)"},{v:sPwd2,s:setSPwd2,p:"Confirmer"}].map((x,i)=>(
-            <input key={i} type="password" value={x.v} onChange={e=>{x.s(e.target.value);setSErr("");}} onKeyDown={e=>e.key==="Enter"&&i===1&&onSetup()} placeholder={x.p}
-              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1.5px solid ${sErr?"#E5484D":"rgba(255,255,255,0.1)"}`,background:"rgba(255,255,255,0.06)",color:"#fff",fontSize:14,outline:"none",marginBottom:10,fontFamily:"inherit"}}/>
-          ))}
-          {sErr&&<p style={{color:"#FF8A8A",fontSize:12,marginBottom:10}}>{sErr}</p>}
-          <button onClick={onSetup} disabled={auth} style={{width:"100%",padding:14,borderRadius:12,border:"none",cursor:"pointer",background:r.grad,color:"#0F1B3C",fontSize:15,fontWeight:700,fontFamily:"inherit",marginTop:4,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            {auth?<><Spin size={18} c="#0F1B3C"/> Création...</>:"Créer le mot de passe ✓"}
-          </button>
+          {sErr&&<p style={{color:"#FF8A8A",fontSize:12,textAlign:"center",marginBottom:14}}>{sErr}</p>}
+          {step===1
+            ? <PinPad value={sPwd} onChange={setSPwd} color={r.color}/>
+            : <>
+                <PinPad value={sPwd2} onChange={setSPwd2} color={r.color}/>
+                <button onClick={()=>{setSPwd("");setSPwd2("");setSErr("");}} style={{display:"block",margin:"18px auto 0",background:"none",border:"none",color:"#9AA8C4",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Recommencer</button>
+              </>}
         </div>
       </div>
     </div>
@@ -1303,6 +1342,9 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
   const [waProduits,setWaProduits]=useState(settings.wa_produits||"");
   const [oldPwd,setOldPwd]=useState(""); const [newPwd,setNewPwd]=useState(""); const [pwdMsg,setPwdMsg]=useState("");
   const [saved,setSaved]=useState(false);
+  const [resetRole,setResetRole]=useState(null);
+  const [resetPin,setResetPin]=useState("");
+  const [teamMsg,setTeamMsg]=useState("");
 
   async function save(){
     const u={livreur_phone:livreurPhone,msg_template:msgTemplate};
@@ -1310,10 +1352,22 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
     await onSave(u); setSaved(true); setTimeout(()=>setSaved(false),2000);
   }
   async function changePwd(){
-    if(!newPwd||newPwd.length<4)return setPwdMsg("Minimum 4 caractères");
+    if(newPwd.length<4)return setPwdMsg("Code numérique de 4 chiffres minimum");
     const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"change",role,password:oldPwd,newPassword:newPwd})});
     const d=await r.json();
     if(d.success){setPwdMsg("✅ Modifié !");setOldPwd("");setNewPwd("");}else setPwdMsg(d.error||"Erreur");
+  }
+  async function adminSetPin(pin){
+    const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"admin_set",role:resetRole,requesterRole:"patron",newPassword:pin})});
+    const d=await r.json();
+    setTeamMsg(d.success?`✅ Nouveau code défini pour ${ROLES[resetRole].label}`:d.error);
+    setResetRole(null); setResetPin("");
+  }
+  async function adminBlock(r0){
+    if(!window.confirm(`Bloquer l'accès de ${ROLES[r0].label} ? Cette personne devra recréer un code (que vous lui communiquerez) pour se reconnecter.`))return;
+    const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"admin_block",role:r0,requesterRole:"patron"})});
+    const d=await r.json();
+    setTeamMsg(d.success?`🔒 Accès de ${ROLES[r0].label} bloqué`:d.error);
   }
   return (
     <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:300,overflowY:"auto",animation:"fadeIn .2s ease"}}>
@@ -1322,6 +1376,21 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
           <button onClick={onClose} style={{width:38,height:38,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",fontSize:18,color:"#5B6B8C"}}>←</button>
           <h1 style={{fontSize:21,fontWeight:700}}>⚙️ Paramètres</h1>
         </div>
+
+        {isPatron&&<Card title="👥 Comptes de l'équipe">
+          <p style={{fontSize:12,color:"#5B6B8C",marginBottom:12,lineHeight:1.5}}>Réinitialisez le code d'accès d'un membre de l'équipe, ou bloquez son accès si vous ne travaillez plus avec cette personne.</p>
+          {teamMsg&&<p style={{fontSize:12,color:teamMsg.includes("Erreur")?"#C0392B":"#1E8E54",marginBottom:12}}>{teamMsg}</p>}
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {["assistante","livreur"].map(r0=>(
+              <div key={r0} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,border:"1px solid #E8ECF4"}}>
+                <div style={{width:36,height:36,borderRadius:10,background:ROLES[r0].grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{ROLES[r0].icon}</div>
+                <div style={{flex:1,fontWeight:700,fontSize:13}}>{ROLES[r0].label}</div>
+                <button onClick={()=>{setResetRole(r0);setResetPin("");}} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#2563EB",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🔄 Réinitialiser</button>
+                <button onClick={()=>adminBlock(r0)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #F5C2C2",background:"#FDEAEA",color:"#C0392B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🔒 Bloquer</button>
+              </div>
+            ))}
+          </div>
+        </Card>}
 
         <Card title="🛵 Livreur">
           <Field label="Numéro WhatsApp du livreur"><input value={livreurPhone} onChange={e=>setLivreurPhone(e.target.value)} placeholder="2250701234567" className="input"/></Field>
@@ -1348,17 +1417,33 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
           <textarea value={msgTemplate} onChange={e=>setMsgTemplate(e.target.value)} className="input" style={{minHeight:130,resize:"vertical"}}/>
         </Card>
 
-        <Card title="🔐 Changer mon mot de passe">
+        <Card title="🔐 Changer mon code">
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Field label="Ancien"><input type="password" value={oldPwd} onChange={e=>setOldPwd(e.target.value)} placeholder="••••" className="input"/></Field>
-            <Field label="Nouveau"><input type="password" value={newPwd} onChange={e=>setNewPwd(e.target.value)} placeholder="••••" className="input"/></Field>
+            <Field label="Ancien"><input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={oldPwd} onChange={e=>setOldPwd(e.target.value.replace(/\D/g,""))} placeholder="••••" className="input"/></Field>
+            <Field label="Nouveau"><input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={newPwd} onChange={e=>setNewPwd(e.target.value.replace(/\D/g,""))} placeholder="••••" className="input"/></Field>
           </div>
           {pwdMsg&&<p style={{fontSize:12,color:pwdMsg.includes("✅")?"#1E8E54":"#C0392B",marginTop:8}}>{pwdMsg}</p>}
-          <button onClick={changePwd} className="btn btn-outline" style={{marginTop:10}}>Changer le mot de passe</button>
+          <button onClick={changePwd} className="btn btn-outline" style={{marginTop:10}}>Changer le code</button>
         </Card>
 
         <button onClick={save} className="btn btn-gold" style={{width:"100%",padding:14,fontSize:15,marginTop:4}}>{saved?"✅ Enregistré !":"💾 Enregistrer"}</button>
       </div>
+      {resetRole&&<Sheet onClose={()=>{setResetRole(null);setResetPin("");}} title={`🔄 Nouveau code · ${ROLES[resetRole].label}`}>
+        <p style={{fontSize:12,color:"#5B6B8C",marginBottom:16}}>Entrez le nouveau code à 4 chiffres, puis communiquez-le à la personne concernée.</p>
+        <div style={{display:"flex",justifyContent:"center",gap:14,marginBottom:22}}>
+          {Array.from({length:4}).map((_,i)=>(
+            <div key={i} style={{width:14,height:14,borderRadius:"50%",background:i<resetPin.length?"#E5B567":"#E8ECF4",border:"1.5px solid #E8ECF4"}}/>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:260,margin:"0 auto"}}>
+          {["1","2","3","4","5","6","7","8","9"].map(d=>(
+            <button key={d} onClick={()=>{const v=resetPin.length>=4?d:resetPin+d; setResetPin(v); if(v.length===4) adminSetPin(v);}} style={{padding:"16px 0",borderRadius:12,border:"1px solid #E8ECF4",background:"#F7F8FB",fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{d}</button>
+          ))}
+          <div/>
+          <button onClick={()=>{const v=resetPin.length>=4?"0":resetPin+"0"; setResetPin(v); if(v.length===4) adminSetPin(v);}} style={{padding:"16px 0",borderRadius:12,border:"1px solid #E8ECF4",background:"#F7F8FB",fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>0</button>
+          <button onClick={()=>setResetPin(resetPin.slice(0,-1))} style={{padding:"16px 0",borderRadius:12,border:"1px solid #E8ECF4",background:"#F7F8FB",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",color:"#C0392B"}}>⌫</button>
+        </div>
+      </Sheet>}
     </div>
   );
 }
