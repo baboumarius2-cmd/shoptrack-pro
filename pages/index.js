@@ -1,7 +1,26 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Component } from "react";
 import { COMMUNES, MOTIFS, CAT_DEP, ROLES, TODAY, getZone, badgeColor, displayCommune, catDep, fmt, Spin, Sheet, Stat } from "../lib/ui.jsx";
 
-export default function App() {
+class ErrorBoundary extends Component {
+  constructor(props){ super(props); this.state = { error:null, info:null }; }
+  static getDerivedStateFromError(error){ return { error }; }
+  componentDidCatch(error, info){ this.setState({ info }); console.error(error, info); }
+  render(){
+    if(this.state.error){
+      return (
+        <div style={{minHeight:"100vh",background:"#0F1B3C",color:"#fff",padding:24,fontFamily:"monospace",fontSize:13,whiteSpace:"pre-wrap",lineHeight:1.6}}>
+          <h2 style={{fontSize:18,marginBottom:16}}>⚠️ Erreur détectée</h2>
+          <div style={{background:"rgba(255,255,255,0.08)",borderRadius:10,padding:14,marginBottom:14}}>{String(this.state.error && (this.state.error.stack || this.state.error.message) || this.state.error)}</div>
+          {this.state.info&&<div style={{background:"rgba(255,255,255,0.05)",borderRadius:10,padding:14,fontSize:11,color:"#9AA8C4"}}>{this.state.info.componentStack}</div>}
+          <button onClick={()=>{try{localStorage.removeItem("yahni_role");}catch{} window.location.reload();}} style={{marginTop:20,padding:"10px 16px",borderRadius:10,border:"none",background:"#E5B567",color:"#0F1B3C",fontWeight:700,fontFamily:"inherit"}}>🔄 Réinitialiser et recharger</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppInner() {
   function lsGet(k){ try{ return localStorage.getItem(k); }catch{ return null; } }
   function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch{} }
   function lsRemove(k){ try{ localStorage.removeItem(k); }catch{} }
@@ -592,6 +611,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron}/>}
     </div>
   );
+}
+
+export default function App(){
+  return <ErrorBoundary><AppInner/></ErrorBoundary>;
 }
 
 /* ════════ LOGIN COMPONENTS ════════ */
