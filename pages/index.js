@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { COMMUNES, MOTIFS, CAT_DEP, ROLES, TODAY, getZone, badgeColor, displayCommune, catDep, fmt, Spin, Sheet, Stat } from "../lib/ui.jsx";
 
 export default function App() {
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch{ return null; } }
+  function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch{} }
+  function lsRemove(k){ try{ localStorage.removeItem(k); }catch{} }
   const [screen, setScreen] = useState("login");
   const [loginRole, setLoginRole] = useState(null);
   const [role, setRole] = useState(null);
@@ -55,7 +58,7 @@ export default function App() {
   const isAssistante = role === "assistante";
 
   useEffect(()=>{
-    const saved = typeof window!=="undefined" ? localStorage.getItem("yahni_role") : null;
+    const saved = lsGet("yahni_role");
     if(saved && ["patron","assistante","livreur"].includes(saved)){
       setRole(saved); setScreen("app"); setTab(saved==="livreur"?"livraisons":"commandes");
     }
@@ -69,7 +72,7 @@ export default function App() {
   },[screen,viewDate,loadOrders]);
 
   function logout(){
-    localStorage.removeItem("yahni_role");
+    lsRemove("yahni_role");
     setRole(null); setScreen("login"); setLoginRole(null);
   }
 
@@ -82,7 +85,7 @@ export default function App() {
     try{
       const r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"login",role:loginRole,password:pwd})});
       const d = await r.json();
-      if(d.success){ localStorage.setItem("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setPwd(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
+      if(d.success){ lsSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setPwd(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
       else if(d.error==="no_password") { setScreen("setup"); setPwd(""); }
       else { setErr(d.error||"Code incorrect"); setPwd(""); }
     }catch{ setErr("Erreur de connexion. Vérifiez votre internet."); setPwd(""); }
@@ -95,7 +98,7 @@ export default function App() {
     try{
       const r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup",role:loginRole,newPassword:sPwd})});
       const d = await r.json();
-      if(d.success){ localStorage.setItem("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setSPwd(""); setSPwd2(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
+      if(d.success){ lsSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setSPwd(""); setSPwd2(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
       else { setSErr(d.error); setSPwd(""); setSPwd2(""); }
     }catch{ setSErr("Erreur. Réessayez."); }
     setAuth(false);
