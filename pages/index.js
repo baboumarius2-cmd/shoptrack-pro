@@ -1,5 +1,36 @@
 import { useState, useEffect, useCallback, Component } from "react";
-import { COMMUNES, MOTIFS, CAT_DEP, ROLES, TODAY, getZone, badgeColor, displayCommune, catDep, fmt, Spin, Sheet, Stat } from "../lib/ui.jsx";
+import { COMMUNES, MOTIFS, CAT_DEP, TODAY, getZone, badgeColor, displayCommune, catDep, fmt, Spin, Sheet, Stat } from "../lib/ui.jsx";
+
+function shadeColor(hex, percent){
+  const h = (hex||"#8B5CF6").replace("#","");
+  const f = parseInt(h.length===3?h.split("").map(c=>c+c).join(""):h,16);
+  const t = percent<0?0:255, p = Math.abs(percent);
+  const R = f>>16, G = f>>8&0x00FF, B = f&0x0000FF;
+  return "#"+(0x1000000+(Math.round((t-R)*p)+R)*0x10000+(Math.round((t-G)*p)+G)*0x100+(Math.round((t-B)*p)+B)).toString(16).slice(1);
+}
+function roleGrad(colorOrRole){
+  const color = (colorOrRole && typeof colorOrRole==="object") ? (colorOrRole.color||"#8B5CF6") : (colorOrRole||"#8B5CF6");
+  return `linear-gradient(135deg, ${color}, ${shadeColor(color,-0.25)})`;
+}
+
+const MODULE_DEFS = [
+  {id:"commandes",icon:"📋",label:"Commandes",perm:"commandes"},
+  {id:"relance",icon:"🔄",label:"Relancer",perm:"relance"},
+  {id:"clients",icon:"👥",label:"Clients",perm:"clients"},
+  {id:"bilan",icon:"📊",label:"Bilan",perm:"bilan"},
+  {id:"depenses",icon:"📉",label:"Dépenses",perm:"depenses"},
+  {id:"stock",icon:"📦",label:"Stock",perm:"stock"},
+  {id:"wishlist",icon:"⭐",label:"À commander",perm:"wishlist"},
+  {id:"boutiques",icon:"🏪",label:"Boutiques",perm:"boutiques"},
+  {id:"reportees",icon:"⏰",label:"Reportées",perm:"reportees"},
+];
+function defaultTabFor(roleObj){
+  if(!roleObj) return "commandes";
+  if(roleObj.permissions?.livreur_mode) return "livraisons";
+  if(roleObj.is_system) return "commandes";
+  const found = MODULE_DEFS.find(m=>roleObj.permissions?.[m.perm]);
+  return found?found.id:"commandes";
+}
 
 class ErrorBoundary extends Component {
   constructor(props){ super(props); this.state = { error:null, info:null }; }
@@ -72,16 +103,32 @@ function AppInner() {
 
   const [msgTemplate, setMsgTemplate] = useState("Bonjour {nom} 👋\n\nMerci pour votre commande sur Yah-ni Store ! 🛍️\n\n📦 {produit}\n💰 {prix} FCFA\n\nVotre commande sera livrée aujourd'hui. Restez disponible svp.\n\nMerci de votre confiance ! 🙏");
 
-  const isPatron = role === "patron";
-  const isLivreur = role === "livreur";
-  const isAssistante = role === "assistante";
+  const [ROLES, setROLES] = useState({});
+  const [rolesLoaded, setRolesLoaded] = useState(false);
+  useEffect(()=>{
+    fetch("/api/roles").then(r=>r.json()).then(list=>{
+      const map = {}; (list||[]).forEach(r0=>{ map[r0.slug]=r0; }); setROLES(map); setRolesLoaded(true);
+    }).catch(()=>setRolesLoaded(true));
+  },[]);
+
+  const currentRoleObj = ROLES[role] || null;
+  const perms = currentRoleObj?.permissions || {};
+  const isPatron = currentRoleObj?.is_system === true;
+  const isLivreur = !!perms.livreur_mode;
+  function can(mod){ return isPatron || !!perms[mod]; }
 
   useEffect(()=>{
     const saved = lsGet("yahni_role");
-    if(saved && ["patron","assistante","livreur"].includes(saved)){
-      setRole(saved); setScreen("app"); setTab(saved==="livreur"?"livraisons":"commandes");
-    }
+    if(saved){ setRole(saved); setScreen("app"); }
   },[]);
+
+  // Garde-fou : si le rôle a été supprimé, ou si l'onglet actuel n'est plus autorisé, on corrige
+  useEffect(()=>{
+    if(screen!=="app" || !rolesLoaded) return;
+    if(!currentRoleObj){ logout(); return; }
+    const allowed = isLivreur ? tab==="livraisons" : MODULE_DEFS.some(m=>m.id===tab && can(m.perm));
+    if(!allowed) setTab(defaultTabFor(currentRoleObj));
+  },[screen, rolesLoaded, role, currentRoleObj]);
 
   function logout(){
     lsRemove("yahni_role");
@@ -97,7 +144,7 @@ function AppInner() {
     try{
       const r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"login",role:loginRole,password:pwd})});
       const d = await r.json();
-      if(d.success){ lsSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setPwd(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
+      if(d.success){ lsSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setPwd(""); setTab(defaultTabFor(ROLES[loginRole])); }
       else if(d.error==="no_password") { setScreen("setup"); setPwd(""); }
       else { setErr(d.error||"Code incorrect"); setPwd(""); }
     }catch{ setErr("Erreur de connexion. Vérifiez votre internet."); setPwd(""); }
@@ -110,7 +157,7 @@ function AppInner() {
     try{
       const r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup",role:loginRole,newPassword:sPwd})});
       const d = await r.json();
-      if(d.success){ lsSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setSPwd(""); setSPwd2(""); setTab(loginRole==="livreur"?"livraisons":"commandes"); }
+      if(d.success){ lsSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setSPwd(""); setSPwd2(""); setTab(defaultTabFor(ROLES[loginRole])); }
       else { setSErr(d.error); setSPwd(""); setSPwd2(""); }
     }catch{ setSErr("Erreur. Réessayez."); }
     setAuth(false);
@@ -347,16 +394,16 @@ function AppInner() {
   }
 
   /* ═══ LOGIN SCREENS ═══ */
-  if(screen==="login" && !loginRole) return <LoginHome onPick={setLoginRole}/>;
-  if(screen==="login" && loginRole) return <LoginPwd role={loginRole} pwd={pwd} setPwd={setPwd} err={err} setErr={setErr} auth={auth} onBack={()=>{setLoginRole(null);setPwd("");setErr("");}} onLogin={doLogin}/>;
-  if(screen==="setup") return <SetupPwd role={loginRole} sPwd={sPwd} setSPwd={setSPwd} sPwd2={sPwd2} setSPwd2={setSPwd2} sErr={sErr} setSErr={setSErr} auth={auth} onSetup={doSetup}/>;
+  if(!rolesLoaded) return <div style={{minHeight:"100vh",background:"#0F1B3C",display:"flex",alignItems:"center",justifyContent:"center"}}><Spin size={32} c="#E5B567"/></div>;
+  if(screen==="login" && !loginRole) return <LoginHome ROLES={ROLES} onPick={setLoginRole}/>;
+  if(screen==="login" && loginRole) return <LoginPwd ROLES={ROLES} role={loginRole} pwd={pwd} setPwd={setPwd} err={err} setErr={setErr} auth={auth} onBack={()=>{setLoginRole(null);setPwd("");setErr("");}} onLogin={doLogin}/>;
+  if(screen==="setup") return <SetupPwd ROLES={ROLES} role={loginRole} sPwd={sPwd} setSPwd={setSPwd} sPwd2={sPwd2} setSPwd2={setSPwd2} sErr={sErr} setSErr={setSErr} auth={auth} onSetup={doSetup}/>;
+  if(screen==="app" && !currentRoleObj) return <div style={{minHeight:"100vh",background:"#0F1B3C",display:"flex",alignItems:"center",justifyContent:"center"}}><Spin size={32} c="#E5B567"/></div>;
 
   /* ═══ NAV ═══ */
-  const navItems = isPatron
-    ? [{id:"commandes",icon:"📋",label:"Commandes"},{id:"relance",icon:"🔄",label:"Relancer"},{id:"clients",icon:"👥",label:"Clients"},{id:"bilan",icon:"📊",label:"Bilan"},{id:"depenses",icon:"📉",label:"Dépenses"},{id:"stock",icon:"📦",label:"Stock"},{id:"wishlist",icon:"⭐",label:"À commander"},{id:"boutiques",icon:"🏪",label:"Boutiques"},{id:"reportees",icon:"⏰",label:"Reportées"}]
-    : isAssistante
-    ? [{id:"commandes",icon:"📋",label:"Commandes"},{id:"relance",icon:"🔄",label:"Relancer"},{id:"stock",icon:"📦",label:"Stock"},{id:"reportees",icon:"⏰",label:"Reportées"}]
-    : [{id:"livraisons",icon:"🛵",label:"Mes livraisons"}];
+  const navItems = isLivreur
+    ? [{id:"livraisons",icon:"🛵",label:"Mes livraisons"}]
+    : MODULE_DEFS.filter(m=>can(m.perm));
 
   const beneficeJour = livrees.reduce((s,o)=>s+(o.prix||0)-o.livraison,0);
   const depJour = depenses.filter(d=>d.date===TODAY).reduce((s,d)=>s+d.montant,0);
@@ -426,13 +473,13 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {notif&&<div style={{position:"fixed",top:20,right:20,zIndex:1000,background:notif.type==="error"?"#FDEAEA":notif.type==="info"?"#E8F1FE":"#E3F7EE",border:`1px solid ${notif.type==="error"?"#F5C2C2":notif.type==="info"?"#BcDcFc":"#A8E6C9"}`,borderRadius:12,padding:"12px 16px",boxShadow:"0 8px 24px rgba(15,27,60,0.14)",fontSize:13,fontWeight:600,color:notif.type==="error"?"#C0392B":notif.type==="info"?"#2563EB":"#1E8E54",animation:"scaleIn .2s ease",maxWidth:320}}>{notif.msg}</div>}
 
       {/* SIDEBAR (desktop) — hidden for livreur */}
-      {!isLivreur && <div className="desktop-sidebar"><Sidebar role={role} navItems={navItems} tab={tab} setTab={setTab} reportees={reportees} todayOrders={todayOrders} livrees={livrees} enAttente={enAttente} beneficeJour={beneficeJour} depJour={depJour} isPatron={isPatron} theme={theme} onSettings={()=>setShowSettings(true)} onLogout={logout}/></div>}
+      {!isLivreur && <div className="desktop-sidebar"><Sidebar ROLES={ROLES} role={role} navItems={navItems} tab={tab} setTab={setTab} reportees={reportees} todayOrders={todayOrders} livrees={livrees} enAttente={enAttente} beneficeJour={beneficeJour} depJour={depJour} canVoirMontants={can('voir_montants')} theme={theme} onSettings={()=>setShowSettings(true)} onLogout={logout}/></div>}
 
       <div className="main-content" style={{marginLeft:isLivreur?0:240,flex:1,minHeight:"100vh",display:"flex",flexDirection:"column"}}>
         {/* TOPBAR */}
         <div className="topbar" style={{borderBottom:"1px solid #E8ECF4",padding:"0 16px",height:62,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:36,height:36,borderRadius:10,background:ROLES[role].grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}} className="mobile-topbar-btn">{ROLES[role].icon}</div>
+            <div style={{width:36,height:36,borderRadius:10,background:roleGrad(ROLES[role]),display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}} className="mobile-topbar-btn">{ROLES[role].icon}</div>
             <div>
               <h1 className="topbar-title" style={{fontSize:17,fontWeight:700}}>{navItems.find(n=>n.id===tab)?.icon} {navItems.find(n=>n.id===tab)?.label}</h1>
               <p style={{fontSize:11,color:"var(--text-mute)"}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}</p>
@@ -442,13 +489,13 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
             <button onClick={()=>setTheme(t=>{const nt=t==="clair"?"sombre":"clair"; saveSettings({theme:nt}); return nt;})} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:16}}>{theme==="clair"?"🌙":"☀️"}</button>
             <button onClick={()=>{loadOrders(viewDate);toast("🔄 Actualisé");}} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:refreshing?"#E5B567":"var(--text-soft)"}}>{refreshing?<Spin size={16}/>:"🔄"}</button>
             {isLivreur&&<button onClick={logout} style={{padding:"8px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:13,color:"var(--text-soft)",fontWeight:600}}>🚪</button>}
-            {(isPatron||isAssistante)&&tab==="commandes"&&<button onClick={()=>setShowAddOrder(true)} className="btn btn-gold" style={{padding:"9px 16px"}}>✍️ Ajouter</button>}
+            {can('commandes')&&tab==="commandes"&&<button onClick={()=>setShowAddOrder(true)} className="btn btn-gold" style={{padding:"9px 16px"}}>✍️ Ajouter</button>}
           </div>
         </div>
 
         <div className="content-pad" style={{flex:1,padding:20,maxWidth:1240,margin:"0 auto",width:"100%"}}>
           {/* ═══ COMMANDES ═══ */}
-          {tab==="commandes" && (isPatron||isAssistante) && (
+          {tab==="commandes" && can('commandes') && (
             <div className="fadeIn">
               <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:22}}>
@@ -465,7 +512,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                         <span style={{fontWeight:700,fontSize:14,color:c}}>{t}</span>
                         <span style={{marginLeft:"auto",background:c,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{items.length}</span>
                       </div>
-                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} isAssistante={isAssistante} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
                     </div>
                   ))}
                 </div>
@@ -488,28 +535,28 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           )}
 
           {/* ═══ BILAN ═══ */}
-          {tab==="bilan" && isPatron && <Bilan orders={orders} depenses={depenses} produits={produits} mode={bilanMode} setMode={setBilanMode} date={bilanDate} setDate={setBilanDate} setTab={setTab}/>}
+          {tab==="bilan" && can('bilan') && <Bilan orders={orders} depenses={depenses} produits={produits} mode={bilanMode} setMode={setBilanMode} date={bilanDate} setDate={setBilanDate} setTab={setTab}/>}
 
           {/* ═══ DÉPENSES ═══ */}
-          {tab==="depenses" && isPatron && <DepensesTab depenses={depenses} filter={depFilter} setFilter={setDepFilter} onAdd={()=>setShowAddDep(true)} onDel={delDepense}/>}
+          {tab==="depenses" && can('depenses') && <DepensesTab depenses={depenses} filter={depFilter} setFilter={setDepFilter} onAdd={()=>setShowAddDep(true)} onDel={delDepense}/>}
 
           {/* ═══ STOCK ═══ */}
-          {tab==="stock" && (isPatron||isAssistante) && <StockTab produits={produits} isPatron={isPatron} loading={loading} onAdd={()=>setShowAddProd(true)} onDel={delProduit} onLink={(id)=>{setLinkTargetId(id);setShowShopifyPicker(true);}}/>}
+          {tab==="stock" && can('stock') && <StockTab produits={produits} canGerer={can('stock')} canVoirMontants={can('voir_montants')} loading={loading} onAdd={()=>setShowAddProd(true)} onDel={delProduit} onLink={(id)=>{setLinkTargetId(id);setShowShopifyPicker(true);}}/>}
 
           {/* ═══ WISHLIST ═══ */}
-          {tab==="wishlist" && isPatron && <WishlistTab items={wishlist} onAdd={()=>setShowAddWish(true)} onDel={delWish}/>}
+          {tab==="wishlist" && can('wishlist') && <WishlistTab items={wishlist} onAdd={()=>setShowAddWish(true)} onDel={delWish}/>}
 
-          {tab==="boutiques" && isPatron && <BoutiquesTab boutiques={boutiques} onAdd={()=>setShowAddBoutique(true)} onDel={delBoutique} onToggle={toggleBoutique}/>}
+          {tab==="boutiques" && can('boutiques') && <BoutiquesTab boutiques={boutiques} onAdd={()=>setShowAddBoutique(true)} onDel={delBoutique} onToggle={toggleBoutique}/>}
 
-          {tab==="relance" && (isPatron||isAssistante) && <RelanceTab orders={orders} settings={settings} toast={toast}/>}
+          {tab==="relance" && can('relance') && <RelanceTab orders={orders} settings={settings} toast={toast}/>}
 
-          {tab==="clients" && isPatron && <ClientsTab clients={clients} settings={settings} toast={toast} onDel={delClient}/>}
+          {tab==="clients" && can('clients') && <ClientsTab clients={clients} settings={settings} toast={toast} onDel={delClient}/>}
 
           {/* ═══ REPORTÉES ═══ */}
-          {tab==="reportees" && (isPatron||isAssistante) && (
+          {tab==="reportees" && can('reportees') && (
             <div className="fadeIn">
               <div style={{background:"#FBF4E6",border:"1px solid #F0DFB8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#8A6D2F"}}>⏰ Ces commandes réapparaissent automatiquement le jour choisi</div>
-              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} isAssistante={isAssistante} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
             </div>
           )}
         </div>
@@ -608,7 +655,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {showAddDep&&<AddDepSheet newDep={newDep} setNewDep={setNewDep} onClose={()=>setShowAddDep(false)} onAdd={addDepense}/>}
       {showAddWish&&<AddWishSheet newWish={newWish} setNewWish={setNewWish} onClose={()=>setShowAddWish(false)} onAdd={addWish}/>}
       {showAddBoutique&&<AddBoutiqueSheet newBoutique={newBoutique} setNewBoutique={setNewBoutique} onClose={()=>setShowAddBoutique(false)} onAdd={addBoutique}/>}
-      {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron}/>}
+      {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron} ROLES={ROLES} reloadRoles={()=>fetch("/api/roles").then(r=>r.json()).then(list=>{const map={};(list||[]).forEach(r0=>{map[r0.slug]=r0;});setROLES(map);})}/>}
     </div>
   );
 }
@@ -640,7 +687,7 @@ function PinPad({value,onChange,length=4,color}){
   );
 }
 
-function LoginHome({onPick}){
+function LoginHome({ROLES,onPick}){
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F1B3C 0%,#1A2B52 60%,#0F1B3C 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}`}</style>
@@ -651,19 +698,22 @@ function LoginHome({onPick}){
           <p style={{color:"#9AA8C4",fontSize:14,marginTop:4}}>Gestion intelligente · yahni.store</p>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          {Object.entries(ROLES).map(([k,r])=>(
+          {Object.entries(ROLES).filter(([,r])=>r.actif!==false).sort((a,b)=>(a[1].ordre||99)-(b[1].ordre||99)).map(([k,r])=>{
+            const sub = r.is_system ? "Accès complet" : r.permissions?.livreur_mode ? "Mes livraisons" : (MODULE_DEFS.filter(m=>r.permissions?.[m.perm]).map(m=>m.label).slice(0,3).join(", ") || "Accès personnalisé");
+            return (
             <button key={k} onClick={()=>onPick(k)} style={{padding:"20px 22px",borderRadius:18,border:"1px solid rgba(255,255,255,0.08)",cursor:"pointer",background:"rgba(255,255,255,0.05)",color:"#fff",display:"flex",alignItems:"center",gap:16,textAlign:"left",position:"relative",overflow:"hidden",transition:"all .2s",backdropFilter:"blur(10px)"}}
               onMouseEnter={e=>{e.currentTarget.style.transform="translateX(4px)";e.currentTarget.style.borderColor="rgba(229,181,103,0.4)";}}
               onMouseLeave={e=>{e.currentTarget.style.transform="translateX(0)";e.currentTarget.style.borderColor="rgba(255,255,255,0.08)";}}>
-              <div style={{position:"absolute",inset:0,background:r.grad,opacity:0.1}}/>
-              <div style={{width:50,height:50,borderRadius:14,background:r.grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0,zIndex:1}}>{r.icon}</div>
+              <div style={{position:"absolute",inset:0,background:roleGrad(r),opacity:0.1}}/>
+              <div style={{width:50,height:50,borderRadius:14,background:roleGrad(r),display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0,zIndex:1}}>{r.icon}</div>
               <div style={{zIndex:1}}>
                 <div style={{fontSize:17,fontWeight:700}}>{r.label}</div>
-                <div style={{fontSize:12,color:"#9AA8C4",marginTop:2}}>{r.sub}</div>
+                <div style={{fontSize:12,color:"#9AA8C4",marginTop:2}}>{sub}</div>
               </div>
               <div style={{marginLeft:"auto",color:"#9AA8C4",fontSize:20,zIndex:1}}>→</div>
             </button>
-          ))}
+            );
+          })}
         </div>
         <p style={{textAlign:"center",color:"#4A5878",fontSize:12,marginTop:32}}>© 2026 Yah-ni Store</p>
       </div>
@@ -671,8 +721,8 @@ function LoginHome({onPick}){
   );
 }
 
-function LoginPwd({role,pwd,setPwd,err,setErr,auth,onBack,onLogin}){
-  const r = ROLES[role];
+function LoginPwd({ROLES,role,pwd,setPwd,err,setErr,auth,onBack,onLogin}){
+  const r = ROLES[role] || {icon:"👤",label:role,color:"#8B5CF6"};
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F1B3C,#1A2B52)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
@@ -680,7 +730,7 @@ function LoginPwd({role,pwd,setPwd,err,setErr,auth,onBack,onLogin}){
         <button onClick={onBack} style={{color:"#9AA8C4",background:"none",border:"none",cursor:"pointer",fontSize:13,marginBottom:28,fontFamily:"inherit"}}>← Retour</button>
         <div style={{background:"rgba(255,255,255,0.05)",backdropFilter:"blur(20px)",borderRadius:22,padding:32,border:"1px solid rgba(255,255,255,0.08)"}}>
           <div style={{textAlign:"center",marginBottom:26}}>
-            <div style={{width:56,height:56,borderRadius:16,background:r.grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 14px"}}>{r.icon}</div>
+            <div style={{width:56,height:56,borderRadius:16,background:roleGrad(r),display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 14px"}}>{r.icon}</div>
             <h2 style={{fontSize:21,fontWeight:700,color:"#fff"}}>Espace {r.label}</h2>
             <p style={{color:"#9AA8C4",fontSize:13,marginTop:3}}>{auth?"Vérification...":"Entrez votre code à 4 chiffres"}</p>
           </div>
@@ -692,8 +742,8 @@ function LoginPwd({role,pwd,setPwd,err,setErr,auth,onBack,onLogin}){
   );
 }
 
-function SetupPwd({role,sPwd,setSPwd,sPwd2,setSPwd2,sErr,setSErr,auth,onSetup}){
-  const r = ROLES[role];
+function SetupPwd({ROLES,role,sPwd,setSPwd,sPwd2,setSPwd2,sErr,setSErr,auth,onSetup}){
+  const r = ROLES[role] || {icon:"👤",label:role,color:"#8B5CF6"};
   const step = sPwd.length<4 ? 1 : 2;
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F1B3C,#1A2B52)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
@@ -719,8 +769,8 @@ function SetupPwd({role,sPwd,setSPwd,sPwd2,setSPwd2,sErr,setSErr,auth,onSetup}){
 }
 
 /* ════════ SIDEBAR ════════ */
-function Sidebar({role,navItems,tab,setTab,reportees,todayOrders,livrees,enAttente,beneficeJour,depJour,isPatron,onSettings,onLogout}){
-  const r = ROLES[role];
+function Sidebar({ROLES,role,navItems,tab,setTab,reportees,todayOrders,livrees,enAttente,beneficeJour,depJour,canVoirMontants,onSettings,onLogout}){
+  const r = ROLES[role]||{icon:"👤",label:role};
   return (
     <div style={{width:240,background:"#0F1B3C",minHeight:"100vh",position:"fixed",left:0,top:0,bottom:0,display:"flex",flexDirection:"column",zIndex:100}}>
       <div style={{padding:"22px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
@@ -732,7 +782,7 @@ function Sidebar({role,navItems,tab,setTab,reportees,todayOrders,livrees,enAtten
           </div>
         </div>
       </div>
-      {isPatron&&<div style={{padding:"14px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+      {canVoirMontants&&<div style={{padding:"14px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           {[{v:todayOrders.length,l:"Commandes",c:"#E5B567"},{v:livrees.length,l:"Livrées",c:"#2BB673"},{v:fmt(beneficeJour-depJour)+"F",l:"Net jour",c:"#8B5CF6"},{v:enAttente.length,l:"Attente",c:"#F2922C"}].map(({v,l,c})=>(
             <div key={l} style={{background:"rgba(255,255,255,0.04)",borderRadius:8,padding:"8px 10px"}}>
@@ -787,12 +837,11 @@ function DateNav({viewDate,setViewDate}){
   );
 }
 
-function OrderCard({o,i,isPatron,isAssistante,onLivrer,onMotif,onWA,onCall,onTransfer,viewDate}){
+function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onTransfer,viewDate}){
   const isDue = o.statut==="reportee" && o.reportDate===viewDate; // reportée arrivée à échéance → ré-actionnable
   const isLivree=o.statut==="livree",isBad=o.statut==="non_livree",isRep=o.statut==="reportee" && !isDue;
   const actionnable = o.statut==="en_attente" || isDue;
   const c=o.contacted||[], bc=badgeColor(o.commune);
-  const seePrix = isPatron||isAssistante;
   return (
     <div className="card order-card" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${isLivree?"#2BB673":isBad?"#E5484D":isRep?"#E5B567":"#E8ECF4"}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -994,12 +1043,12 @@ function DepensesTab({depenses,filter,setFilter,onAdd,onDel}){
 }
 
 /* ════════ STOCK ════════ */
-function StockTab({produits,isPatron,loading,onAdd,onDel,onLink}){
+function StockTab({produits,canGerer,canVoirMontants,loading,onAdd,onDel,onLink}){
   return (
     <div className="fadeIn">
-      {!isPatron&&<div style={{background:"#E8F1FE",border:"1px solid #BcDcFc",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#2563EB"}}>👁️ Vue quantités — montants réservés au patron</div>}
-      {isPatron&&<button onClick={onAdd} style={{width:"100%",padding:14,borderRadius:14,border:"2px dashed #F0DFB8",background:"#FBF4E6",color:"#C99A4B",fontSize:14,fontWeight:600,cursor:"pointer",marginBottom:18,fontFamily:"inherit"}}>➕ Ajouter un produit</button>}
-      {loading?<Loader text="Chargement..."/>:produits.length===0?<Empty icon="📦" title="Aucun produit" sub={isPatron?"Ajoutez votre premier produit":"Aucun produit en stock"}/>:
+      {!canVoirMontants&&<div style={{background:"#E8F1FE",border:"1px solid #BcDcFc",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#2563EB"}}>👁️ Vue quantités — montants non visibles pour votre rôle</div>}
+      {canGerer&&<button onClick={onAdd} style={{width:"100%",padding:14,borderRadius:14,border:"2px dashed #F0DFB8",background:"#FBF4E6",color:"#C99A4B",fontSize:14,fontWeight:600,cursor:"pointer",marginBottom:18,fontFamily:"inherit"}}>➕ Ajouter un produit</button>}
+      {loading?<Loader text="Chargement..."/>:produits.length===0?<Empty icon="📦" title="Aucun produit" sub={canGerer?"Ajoutez votre premier produit":"Aucun produit en stock"}/>:
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:16}}>
         {produits.map(p=>{
           const vendu=p.stock_initial-p.stock_actuel;
@@ -1016,13 +1065,13 @@ function StockTab({produits,isPatron,loading,onAdd,onDel,onLink}){
                   <div style={{fontSize:11,color:"#9AA8C4"}}>{p.categorie}{p.conditionnement?` · ${p.conditionnement}`:""}</div>
                 </div>
                 {alerte&&<span style={{fontSize:10,color:"#C0392B",fontWeight:700,background:"#FDEAEA",padding:"3px 8px",borderRadius:20}}>⚠️</span>}
-                {isPatron&&<button onClick={()=>onDel(p.id)} style={{width:28,height:28,borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#9AA8C4",cursor:"pointer",fontSize:12}}>🗑</button>}
+                {canGerer&&<button onClick={()=>onDel(p.id)} style={{width:28,height:28,borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#9AA8C4",cursor:"pointer",fontSize:12}}>🗑</button>}
               </div>
-              {isPatron&&(p.shopify_id
+              {canGerer&&(p.shopify_id
                 ? <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12,fontSize:11,color:"#1E8E54",background:"#E3F7EE",borderRadius:8,padding:"6px 10px"}}>🔗 Lié à Shopify <button onClick={()=>onLink(p.id)} style={{marginLeft:"auto",border:"none",background:"none",color:"#1E8E54",fontWeight:700,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>Changer</button></div>
                 : <button onClick={()=>onLink(p.id)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",marginBottom:12,fontSize:11,color:"#C0392B",background:"#FDEAEA",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>⚠️ Non lié à Shopify — le stock ne se décrémentera pas automatiquement. Lier maintenant</button>
               )}
-              {isPatron&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+              {canVoirMontants&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
                 <div style={{flex:1,minWidth:80,background:"#F7F8FB",borderRadius:8,padding:"8px 10px"}}><div style={{fontSize:10,color:"#9AA8C4"}}>Coût (Chine+Fret)</div><div style={{fontSize:13,fontWeight:700,color:"#E5484D"}}>{fmt(coutTotal)} F</div></div>
                 <div style={{flex:1,minWidth:80,background:"#F7F8FB",borderRadius:8,padding:"8px 10px"}}><div style={{fontSize:10,color:"#9AA8C4"}}>Vente</div><div style={{fontSize:13,fontWeight:700,color:"#2BB673"}}>{fmt(p.prix_vente)} F</div></div>
                 <div style={{flex:1,minWidth:80,background:"#F7F8FB",borderRadius:8,padding:"8px 10px"}}><div style={{fontSize:10,color:"#9AA8C4"}}>Marge/u</div><div style={{fontSize:13,fontWeight:700,color:"#8B5CF6"}}>{fmt(marge)} F</div></div>
@@ -1359,7 +1408,22 @@ function AddBoutiqueSheet({newBoutique,setNewBoutique,onClose,onAdd}){
 
 
 /* ════════ SETTINGS ════════ */
-function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,isPatron}){
+const PERM_LABELS = [
+  {key:"commandes",label:"Commandes",icon:"📋"},
+  {key:"relance",label:"Relancer",icon:"🔄"},
+  {key:"clients",label:"Clients",icon:"👥"},
+  {key:"bilan",label:"Bilan",icon:"📊"},
+  {key:"depenses",label:"Dépenses",icon:"📉"},
+  {key:"stock",label:"Stock",icon:"📦"},
+  {key:"wishlist",label:"À commander",icon:"⭐"},
+  {key:"boutiques",label:"Boutiques",icon:"🏪"},
+  {key:"reportees",label:"Reportées",icon:"⏰"},
+  {key:"voir_montants",label:"Voir les prix/montants",icon:"💰"},
+  {key:"livreur_mode",label:"Interface livreur uniquement (remplace tout le reste)",icon:"🛵"},
+];
+const EMOJI_CHOICES = ["👤","👩‍💼","🧑‍💼","🛵","📦","💰","👨‍🔧","🧑‍🍳","📞","🛍️","🚚","🏪"];
+
+function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,isPatron,ROLES,reloadRoles}){
   const [livreurPhone,setLivreurPhone]=useState(settings.livreur_phone||"");
   const [shopifyStore,setShopifyStore]=useState(settings.shopify_store||"");
   const [shopifyToken,setShopifyToken]=useState("");
@@ -1371,6 +1435,8 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
   const [resetRole,setResetRole]=useState(null);
   const [resetPin,setResetPin]=useState("");
   const [teamMsg,setTeamMsg]=useState("");
+  const [editRole,setEditRole]=useState(null); // slug en édition, ou "new"
+  const [roleForm,setRoleForm]=useState({label:"",icon:"👤",color:"#8B5CF6",permissions:{}});
 
   async function save(){
     const u={livreur_phone:livreurPhone,msg_template:msgTemplate};
@@ -1386,14 +1452,46 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
   async function adminSetPin(pin){
     const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"admin_set",role:resetRole,requesterRole:"patron",newPassword:pin})});
     const d=await r.json();
-    setTeamMsg(d.success?`✅ Nouveau code défini pour ${ROLES[resetRole].label}`:d.error);
+    setTeamMsg(d.success?`✅ Nouveau code défini pour ${ROLES[resetRole]?.label||resetRole}`:d.error);
     setResetRole(null); setResetPin("");
+    if(d.success) reloadRoles();
   }
   async function adminBlock(r0){
-    if(!window.confirm(`Bloquer l'accès de ${ROLES[r0].label} ? Cette personne devra recréer un code (que vous lui communiquerez) pour se reconnecter.`))return;
+    if(!window.confirm(`Bloquer l'accès de ${ROLES[r0].label} ? Cette personne devra que vous réinitialisiez son code pour se reconnecter.`))return;
     const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"admin_block",role:r0,requesterRole:"patron"})});
     const d=await r.json();
     setTeamMsg(d.success?`🔒 Accès de ${ROLES[r0].label} bloqué`:d.error);
+    if(d.success) reloadRoles();
+  }
+  async function adminUnblock(r0){
+    const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"admin_unblock",role:r0,requesterRole:"patron"})});
+    const d=await r.json();
+    setTeamMsg(d.success?`✅ Accès de ${ROLES[r0].label} débloqué`:d.error);
+    if(d.success) reloadRoles();
+  }
+  function openNewRole(){ setRoleForm({label:"",icon:"👤",color:"#8B5CF6",permissions:{}}); setEditRole("new"); }
+  function openEditRole(slug){ const r0=ROLES[slug]; setRoleForm({label:r0.label,icon:r0.icon,color:r0.color,permissions:{...r0.permissions}}); setEditRole(slug); }
+  async function saveRole(){
+    if(!roleForm.label.trim())return setTeamMsg("Le nom du rôle est requis");
+    if(editRole==="new"){
+      const r=await fetch("/api/roles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",requesterRole:"patron",role:roleForm})});
+      const d=await r.json();
+      if(d.error){ setTeamMsg("❌ "+d.error); return; }
+      setTeamMsg(`✅ Rôle "${roleForm.label}" créé — pense à lui définir un code d'accès`);
+    } else {
+      const r=await fetch("/api/roles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",requesterRole:"patron",slug:editRole,updates:roleForm})});
+      const d=await r.json();
+      if(d.error){ setTeamMsg("❌ "+d.error); return; }
+      setTeamMsg(`✅ Rôle "${roleForm.label}" mis à jour`);
+    }
+    setEditRole(null); reloadRoles();
+  }
+  async function deleteRole(slug){
+    if(!window.confirm(`Supprimer définitivement le rôle "${ROLES[slug].label}" ? Cette action est irréversible.`))return;
+    const r=await fetch("/api/roles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",requesterRole:"patron",slug})});
+    const d=await r.json();
+    if(d.error){ setTeamMsg("❌ "+d.error); return; }
+    setTeamMsg(`🗑 Rôle supprimé`); reloadRoles();
   }
   return (
     <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:300,overflowY:"auto",animation:"fadeIn .2s ease"}}>
@@ -1403,19 +1501,26 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
           <h1 style={{fontSize:21,fontWeight:700}}>⚙️ Paramètres</h1>
         </div>
 
-        {isPatron&&<Card title="👥 Comptes de l'équipe">
-          <p style={{fontSize:12,color:"#5B6B8C",marginBottom:12,lineHeight:1.5}}>Réinitialisez le code d'accès d'un membre de l'équipe, ou bloquez son accès si vous ne travaillez plus avec cette personne.</p>
-          {teamMsg&&<p style={{fontSize:12,color:teamMsg.includes("Erreur")?"#C0392B":"#1E8E54",marginBottom:12}}>{teamMsg}</p>}
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {["assistante","livreur"].map(r0=>(
-              <div key={r0} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,border:"1px solid #E8ECF4"}}>
-                <div style={{width:36,height:36,borderRadius:10,background:ROLES[r0].grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{ROLES[r0].icon}</div>
-                <div style={{flex:1,fontWeight:700,fontSize:13}}>{ROLES[r0].label}</div>
-                <button onClick={()=>{setResetRole(r0);setResetPin("");}} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#2563EB",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🔄 Réinitialiser</button>
-                <button onClick={()=>adminBlock(r0)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #F5C2C2",background:"#FDEAEA",color:"#C0392B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🔒 Bloquer</button>
+        {isPatron&&<Card title="👥 Rôles & équipe">
+          <p style={{fontSize:12,color:"#5B6B8C",marginBottom:12,lineHeight:1.5}}>Crée des rôles sur mesure (emoji, couleur, permissions à la carte), réinitialise un code d'accès, ou bloque quelqu'un avec qui tu ne travailles plus.</p>
+          {teamMsg&&<p style={{fontSize:12,color:teamMsg.includes("❌")?"#C0392B":"#1E8E54",marginBottom:12}}>{teamMsg}</p>}
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
+            {Object.entries(ROLES).filter(([slug,r0])=>!r0.is_system).sort((a,b)=>(a[1].ordre||99)-(b[1].ordre||99)).map(([slug,r0])=>(
+              <div key={slug} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:12,border:`1px solid ${r0.actif===false?"#F5C2C2":"#E8ECF4"}`,flexWrap:"wrap",opacity:r0.actif===false?0.7:1}}>
+                <div style={{width:36,height:36,borderRadius:10,background:roleGrad(r0),display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{r0.icon}</div>
+                <div style={{flex:1,minWidth:100}}>
+                  <div style={{fontWeight:700,fontSize:13}}>{r0.label}{r0.actif===false&&<span style={{color:"#C0392B",fontWeight:600}}> · bloqué</span>}</div>
+                </div>
+                <button onClick={()=>openEditRole(slug)} style={{padding:"7px 9px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#5B6B8C",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✏️</button>
+                <button onClick={()=>{setResetRole(slug);setResetPin("");}} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#2563EB",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🔄 Code</button>
+                {r0.actif===false
+                  ? <button onClick={()=>adminUnblock(slug)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #A8E6C9",background:"#E3F7EE",color:"#1E8E54",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🔓 Débloquer</button>
+                  : <button onClick={()=>adminBlock(slug)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #F5C2C2",background:"#FDEAEA",color:"#C0392B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🔒</button>}
+                <button onClick={()=>deleteRole(slug)} style={{padding:"7px 9px",borderRadius:8,border:"1px solid #F5C2C2",background:"#fff",color:"#C0392B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
               </div>
             ))}
           </div>
+          <button onClick={openNewRole} style={{width:"100%",padding:12,borderRadius:12,border:"2px dashed #E0C8FF",background:"#F9F5FF",color:"#7C3AED",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>➕ Nouveau rôle</button>
         </Card>}
 
         <Card title="🛵 Livreur">
@@ -1454,7 +1559,8 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
 
         <button onClick={save} className="btn btn-gold" style={{width:"100%",padding:14,fontSize:15,marginTop:4}}>{saved?"✅ Enregistré !":"💾 Enregistrer"}</button>
       </div>
-      {resetRole&&<Sheet onClose={()=>{setResetRole(null);setResetPin("");}} title={`🔄 Nouveau code · ${ROLES[resetRole].label}`}>
+
+      {resetRole&&<Sheet onClose={()=>{setResetRole(null);setResetPin("");}} title={`🔄 Nouveau code · ${ROLES[resetRole]?.label||resetRole}`}>
         <p style={{fontSize:12,color:"#5B6B8C",marginBottom:16}}>Entrez le nouveau code à 4 chiffres, puis communiquez-le à la personne concernée.</p>
         <div style={{display:"flex",justifyContent:"center",gap:14,marginBottom:22}}>
           {Array.from({length:4}).map((_,i)=>(
@@ -1468,6 +1574,36 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
           <div/>
           <button onClick={()=>{const v=resetPin.length>=4?"0":resetPin+"0"; setResetPin(v); if(v.length===4) adminSetPin(v);}} style={{padding:"16px 0",borderRadius:12,border:"1px solid #E8ECF4",background:"#F7F8FB",fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>0</button>
           <button onClick={()=>setResetPin(resetPin.slice(0,-1))} style={{padding:"16px 0",borderRadius:12,border:"1px solid #E8ECF4",background:"#F7F8FB",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",color:"#C0392B"}}>⌫</button>
+        </div>
+      </Sheet>}
+
+      {editRole&&<Sheet onClose={()=>setEditRole(null)} title={editRole==="new"?"➕ Nouveau rôle":`✏️ Modifier · ${ROLES[editRole]?.label}`}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Field label="Nom du rôle *"><input value={roleForm.label} onChange={e=>setRoleForm(p=>({...p,label:e.target.value}))} placeholder="Ex: 2ème Assistante" className="input"/></Field>
+          <Field label="Emoji">
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {EMOJI_CHOICES.map(e0=>(
+                <button key={e0} onClick={()=>setRoleForm(p=>({...p,icon:e0}))} style={{width:38,height:38,borderRadius:10,border:`1.5px solid ${roleForm.icon===e0?"#E5B567":"#E8ECF4"}`,background:roleForm.icon===e0?"#FBF4E6":"#fff",fontSize:18,cursor:"pointer"}}>{e0}</button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Couleur">
+            <input type="color" value={roleForm.color} onChange={e=>setRoleForm(p=>({...p,color:e.target.value}))} style={{width:60,height:38,borderRadius:8,border:"1px solid #E8ECF4",cursor:"pointer"}}/>
+          </Field>
+          <Field label="Permissions">
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {PERM_LABELS.map(p0=>(
+                <label key={p0.key} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,border:"1px solid #E8ECF4",cursor:"pointer",fontSize:13}}>
+                  <input type="checkbox" checked={!!roleForm.permissions[p0.key]} onChange={e=>setRoleForm(p=>({...p,permissions:{...p.permissions,[p0.key]:e.target.checked}}))}/>
+                  <span>{p0.icon} {p0.label}</span>
+                </label>
+              ))}
+            </div>
+          </Field>
+          <div style={{display:"flex",gap:10,marginTop:4}}>
+            <button onClick={()=>setEditRole(null)} className="btn btn-outline" style={{flex:1}}>Annuler</button>
+            <button onClick={saveRole} className="btn btn-gold" style={{flex:2}}>✓ Enregistrer</button>
+          </div>
         </div>
       </Sheet>}
     </div>
