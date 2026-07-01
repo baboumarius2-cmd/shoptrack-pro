@@ -18,6 +18,7 @@ export default async function handler(req, res) {
         cout_achat:+produit.coutAchat||0, cout_fret:+produit.coutFret||0,
         prix_vente:+produit.prixVente||0, conditionnement:produit.conditionnement||"",
         seuil_alerte:+produit.seuilAlerte||10, image:produit.image||null,
+        shopify_id:produit.shopifyId||null,
       });
       if (error) return res.status(500).json({ error:error.message });
       return res.status(200).json({ success:true });

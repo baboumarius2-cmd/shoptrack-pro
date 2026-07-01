@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { COMMUNES, MOTIFS, CAT_DEP, ROLES, TODAY, getZone, badgeColor, catDep, fmt, Spin, Sheet, Stat } from "../lib/ui.jsx";
+import { COMMUNES, MOTIFS, CAT_DEP, ROLES, TODAY, getZone, badgeColor, displayCommune, catDep, fmt, Spin, Sheet, Stat } from "../lib/ui.jsx";
 
 export default function App() {
   const [screen, setScreen] = useState("login");
@@ -36,7 +36,9 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
 
   const [showAddProd, setShowAddProd] = useState(false);
-  const [newProd, setNewProd] = useState({nom:"",emoji:"📦",categorie:"",stockInitial:"",coutAchat:"",coutFret:"",prixVente:"",conditionnement:"",seuilAlerte:"10",image:""});
+  const [showShopifyPicker, setShowShopifyPicker] = useState(false);
+  const [linkTargetId, setLinkTargetId] = useState(null);
+  const [newProd, setNewProd] = useState({nom:"",emoji:"📦",categorie:"",stockInitial:"",coutAchat:"",coutFret:"",prixVente:"",conditionnement:"",seuilAlerte:"10",image:"",shopifyId:"",shopifyNom:""});
   const [showAddDep, setShowAddDep] = useState(false);
   const [newDep, setNewDep] = useState({libelle:"",montant:"",categorie:"emballage",date:TODAY,note:""});
   const [showAddOrder, setShowAddOrder] = useState(false);
@@ -255,10 +257,19 @@ export default function App() {
   async function addProduit(){
     if(!newProd.nom||!newProd.stockInitial)return;
     await fetch("/api/produits",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",produit:newProd})});
-    setNewProd({nom:"",emoji:"📦",categorie:"",stockInitial:"",coutAchat:"",coutFret:"",prixVente:"",conditionnement:"",seuilAlerte:"10",image:""});
+    setNewProd({nom:"",emoji:"📦",categorie:"",stockInitial:"",coutAchat:"",coutFret:"",prixVente:"",conditionnement:"",seuilAlerte:"10",image:"",shopifyId:"",shopifyNom:""});
     setShowAddProd(false); loadAll(); toast("📦 Produit ajouté");
   }
   async function delProduit(id){ await fetch("/api/produits",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id})}); setProduits(p=>p.filter(x=>x.id!==id)); }
+  async function relierProduitShopify(sp){
+    if(linkTargetId){
+      await fetch("/api/produits",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:linkTargetId,updates:{shopify_id:sp.shopifyId}})});
+      loadAll(); toast("🔗 Produit lié à "+sp.nom);
+    } else {
+      setNewProd(p=>({...p,shopifyId:sp.shopifyId,shopifyNom:sp.nom,nom:p.nom||sp.nom,prixVente:p.prixVente||String(sp.prixVente||""),image:p.image||sp.image||""}));
+    }
+    setShowShopifyPicker(false); setLinkTargetId(null);
+  }
 
   async function addDepense(){
     if(!newDep.libelle||!newDep.montant)return;
@@ -411,7 +422,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                         <span style={{fontWeight:700,fontSize:14,color:c}}>{t}</span>
                         <span style={{marginLeft:"auto",background:c,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{items.length}</span>
                       </div>
-                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} isAssistante={isAssistante} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
                     </div>
                   ))}
                 </div>
@@ -440,7 +451,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {tab==="depenses" && isPatron && <DepensesTab depenses={depenses} filter={depFilter} setFilter={setDepFilter} onAdd={()=>setShowAddDep(true)} onDel={delDepense}/>}
 
           {/* ═══ STOCK ═══ */}
-          {tab==="stock" && (isPatron||isAssistante) && <StockTab produits={produits} isPatron={isPatron} loading={loading} onAdd={()=>setShowAddProd(true)} onDel={delProduit}/>}
+          {tab==="stock" && (isPatron||isAssistante) && <StockTab produits={produits} isPatron={isPatron} loading={loading} onAdd={()=>setShowAddProd(true)} onDel={delProduit} onLink={(id)=>{setLinkTargetId(id);setShowShopifyPicker(true);}}/>}
 
           {/* ═══ WISHLIST ═══ */}
           {tab==="wishlist" && isPatron && <WishlistTab items={wishlist} onAdd={()=>setShowAddWish(true)} onDel={delWish}/>}
@@ -455,7 +466,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {tab==="reportees" && (isPatron||isAssistante) && (
             <div className="fadeIn">
               <div style={{background:"#FBF4E6",border:"1px solid #F0DFB8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#8A6D2F"}}>⏰ Ces commandes réapparaissent automatiquement le jour choisi</div>
-              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} isAssistante={isAssistante} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
             </div>
           )}
         </div>
@@ -549,7 +560,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       </Sheet>}
 
       {showAddOrder&&<AddOrderSheet newOrder={newOrder} setNewOrder={setNewOrder} produits={produits} onClose={()=>setShowAddOrder(false)} onAdd={addOrderManual}/>}
-      {showAddProd&&<AddProdSheet newProd={newProd} setNewProd={setNewProd} onClose={()=>setShowAddProd(false)} onAdd={addProduit}/>}
+      {showAddProd&&<AddProdSheet newProd={newProd} setNewProd={setNewProd} onClose={()=>setShowAddProd(false)} onAdd={addProduit} onLinkShopify={()=>{setLinkTargetId(null);setShowShopifyPicker(true);}}/>}
+      {showShopifyPicker&&<ShopifyProductPicker onClose={()=>{setShowShopifyPicker(false);setLinkTargetId(null);}} onSelect={relierProduitShopify}/>}
       {showAddDep&&<AddDepSheet newDep={newDep} setNewDep={setNewDep} onClose={()=>setShowAddDep(false)} onAdd={addDepense}/>}
       {showAddWish&&<AddWishSheet newWish={newWish} setNewWish={setNewWish} onClose={()=>setShowAddWish(false)} onAdd={addWish}/>}
       {showAddBoutique&&<AddBoutiqueSheet newBoutique={newBoutique} setNewBoutique={setNewBoutique} onClose={()=>setShowAddBoutique(false)} onAdd={addBoutique}/>}
@@ -710,25 +722,27 @@ function DateNav({viewDate,setViewDate}){
   );
 }
 
-function OrderCard({o,i,isPatron,onLivrer,onMotif,onWA,onCall,onTransfer,viewDate}){
+function OrderCard({o,i,isPatron,isAssistante,onLivrer,onMotif,onWA,onCall,onTransfer,viewDate}){
   const isDue = o.statut==="reportee" && o.reportDate===viewDate; // reportée arrivée à échéance → ré-actionnable
   const isLivree=o.statut==="livree",isBad=o.statut==="non_livree",isRep=o.statut==="reportee" && !isDue;
   const actionnable = o.statut==="en_attente" || isDue;
   const c=o.contacted||[], bc=badgeColor(o.commune);
+  const seePrix = isPatron||isAssistante;
   return (
     <div className="card order-card" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${isLivree?"#2BB673":isBad?"#E5484D":isRep?"#E5B567":"#E8ECF4"}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
         <div style={{flex:1}}>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,flexWrap:"wrap"}}>
             <span style={{fontSize:10,color:"#9AA8C4",fontFamily:"monospace"}}>{o.numero||o.id}</span>
-            <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:bc+"18",color:bc,fontWeight:600}}>{o.commune}</span>
+            <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:bc+"18",color:bc,fontWeight:600}}>{displayCommune(o.commune)}</span>
             {o.boutiqueNom&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:(o.boutiqueCouleur||"#E5B567")+"22",color:o.boutiqueCouleur||"#C99A4B",fontWeight:700}}>🏪 {o.boutiqueNom}</span>}
             {o.isManual&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>✍️</span>}
             {o.wasReported&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>↩️ Reporté</span>}
           </div>
           <div className="order-client" style={{fontWeight:700,fontSize:15,marginBottom:2,color:"var(--text)"}}>{o.client}</div>
-          <div className="order-produit" style={{color:"var(--text-soft)",fontSize:12,marginBottom:isPatron?4:0}}>📦 {o.produit}</div>
-          {isPatron&&<div style={{fontSize:12,color:"#2BB673",fontWeight:600}}>{fmt(o.prix)} F <span style={{color:"#9AA8C4",fontWeight:400}}>· net {fmt((o.prix||0)-o.livraison)} F</span></div>}
+          <div className="order-produit" style={{color:"var(--text-soft)",fontSize:12,marginBottom:4}}>📦 {o.produit}</div>
+          <div style={{fontSize:12,color:"#5B6B8C",marginBottom:seePrix?4:0}}>📍 {o.adresse||o.commune}</div>
+          {seePrix&&<div style={{fontSize:12,color:"#2BB673",fontWeight:600}}>{fmt(o.prix)} F {isPatron&&<span style={{color:"#9AA8C4",fontWeight:400}}>· net {fmt((o.prix||0)-o.livraison)} F</span>}</div>}
           {o.note&&<div style={{fontSize:11,color:"#9AA8C4",marginTop:2}}>📝 {o.note}</div>}
           {o.motif&&<div style={{fontSize:11,color:"#5B6B8C",marginTop:2}}>Motif: {o.motif}</div>}
           {o.reportDate&&<div style={{fontSize:11,color:"#C99A4B",marginTop:2,fontWeight:500}}>📅 Reporté au {o.reportDate}</div>}
@@ -915,7 +929,7 @@ function DepensesTab({depenses,filter,setFilter,onAdd,onDel}){
 }
 
 /* ════════ STOCK ════════ */
-function StockTab({produits,isPatron,loading,onAdd,onDel}){
+function StockTab({produits,isPatron,loading,onAdd,onDel,onLink}){
   return (
     <div className="fadeIn">
       {!isPatron&&<div style={{background:"#E8F1FE",border:"1px solid #BcDcFc",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#2563EB"}}>👁️ Vue quantités — montants réservés au patron</div>}
@@ -939,6 +953,10 @@ function StockTab({produits,isPatron,loading,onAdd,onDel}){
                 {alerte&&<span style={{fontSize:10,color:"#C0392B",fontWeight:700,background:"#FDEAEA",padding:"3px 8px",borderRadius:20}}>⚠️</span>}
                 {isPatron&&<button onClick={()=>onDel(p.id)} style={{width:28,height:28,borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#9AA8C4",cursor:"pointer",fontSize:12}}>🗑</button>}
               </div>
+              {isPatron&&(p.shopify_id
+                ? <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12,fontSize:11,color:"#1E8E54",background:"#E3F7EE",borderRadius:8,padding:"6px 10px"}}>🔗 Lié à Shopify <button onClick={()=>onLink(p.id)} style={{marginLeft:"auto",border:"none",background:"none",color:"#1E8E54",fontWeight:700,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>Changer</button></div>
+                : <button onClick={()=>onLink(p.id)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",marginBottom:12,fontSize:11,color:"#C0392B",background:"#FDEAEA",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>⚠️ Non lié à Shopify — le stock ne se décrémentera pas automatiquement. Lier maintenant</button>
+              )}
               {isPatron&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
                 <div style={{flex:1,minWidth:80,background:"#F7F8FB",borderRadius:8,padding:"8px 10px"}}><div style={{fontSize:10,color:"#9AA8C4"}}>Coût (Chine+Fret)</div><div style={{fontSize:13,fontWeight:700,color:"#E5484D"}}>{fmt(coutTotal)} F</div></div>
                 <div style={{flex:1,minWidth:80,background:"#F7F8FB",borderRadius:8,padding:"8px 10px"}}><div style={{fontSize:10,color:"#9AA8C4"}}>Vente</div><div style={{fontSize:13,fontWeight:700,color:"#2BB673"}}>{fmt(p.prix_vente)} F</div></div>
@@ -1008,9 +1026,12 @@ function AddOrderSheet({newOrder,setNewOrder,produits,onClose,onAdd}){
   </Sheet>;
 }
 
-function AddProdSheet({newProd,setNewProd,onClose,onAdd}){
+function AddProdSheet({newProd,setNewProd,onClose,onAdd,onLinkShopify}){
   return <Sheet onClose={onClose} title="📦 Nouveau produit">
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {newProd.shopifyId
+        ? <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#1E8E54",background:"#E3F7EE",borderRadius:10,padding:"10px 12px"}}>🔗 Lié à « {newProd.shopifyNom} » <button onClick={()=>setNewProd(p=>({...p,shopifyId:"",shopifyNom:""}))} style={{marginLeft:"auto",border:"none",background:"none",color:"#1E8E54",fontWeight:700,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>Retirer</button></div>
+        : <button onClick={onLinkShopify} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px dashed #BcDcFc",background:"#E8F1FE",color:"#2563EB",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🔗 Choisir depuis Shopify (recommandé)</button>}
       <Field label="Nom du produit *"><input value={newProd.nom} onChange={e=>setNewProd(p=>({...p,nom:e.target.value}))} placeholder="Ex: Montre connectée X8" className="input"/></Field>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Field label="Stock initial *"><input type="number" value={newProd.stockInitial} onChange={e=>setNewProd(p=>({...p,stockInitial:e.target.value}))} placeholder="500" className="input"/></Field>
@@ -1030,6 +1051,37 @@ function AddProdSheet({newProd,setNewProd,onClose,onAdd}){
         <button onClick={onAdd} disabled={!newProd.nom||!newProd.stockInitial} className="btn btn-gold" style={{flex:2}}>✓ Ajouter</button>
       </div>
     </div>
+  </Sheet>;
+}
+
+function ShopifyProductPicker({onClose,onSelect}){
+  const [items,setItems]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [q,setQ]=useState("");
+  const [err,setErr]=useState("");
+  useEffect(()=>{
+    fetch("/api/shopify-products").then(r=>r.json()).then(d=>{
+      if(d.error) setErr(d.error); else setItems(d.products||[]);
+      setLoading(false);
+    }).catch(()=>{setErr("Erreur de connexion à Shopify");setLoading(false);});
+  },[]);
+  const filtered = items.filter(p=>p.nom.toLowerCase().includes(q.toLowerCase()));
+  return <Sheet onClose={onClose} title="🔗 Choisir un produit Shopify">
+    <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Rechercher un produit..." className="input" style={{marginBottom:12}}/>
+    {loading?<Loader text="Chargement des produits Shopify..."/>:
+     err?<div style={{fontSize:13,color:"#C0392B",background:"#FDEAEA",borderRadius:10,padding:"12px 14px"}}>⚠️ {err}</div>:
+     filtered.length===0?<Empty icon="🔍" title="Aucun produit trouvé"/>:
+    <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:420,overflowY:"auto"}}>
+      {filtered.map(p=>(
+        <button key={p.shopifyId} onClick={()=>onSelect(p)} style={{display:"flex",alignItems:"center",gap:10,padding:10,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+          {p.image?<img src={p.image} alt={p.nom} style={{width:38,height:38,borderRadius:8,objectFit:"cover"}}/>:<div style={{width:38,height:38,borderRadius:8,background:"#F2F4F8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📦</div>}
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:13}}>{p.nom}</div>
+            <div style={{fontSize:11,color:"#9AA8C4"}}>{fmt(p.prixVente)} F · stock Shopify {p.stock}{p.boutiqueNom?` · 🏪 ${p.boutiqueNom}`:""}</div>
+          </div>
+        </button>
+      ))}
+    </div>}
   </Sheet>;
 }
 
