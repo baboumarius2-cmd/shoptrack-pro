@@ -266,7 +266,7 @@ export default function App() {
       await fetch("/api/produits",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:linkTargetId,updates:{shopify_id:sp.shopifyId}})});
       loadAll(); toast("🔗 Produit lié à "+sp.nom);
     } else {
-      setNewProd(p=>({...p,shopifyId:sp.shopifyId,shopifyNom:sp.nom,nom:p.nom||sp.nom,prixVente:p.prixVente||String(sp.prixVente||""),image:p.image||sp.image||""}));
+      setNewProd(p=>({...p,shopifyId:sp.shopifyId,shopifyNom:sp.nom,nom:p.nom||sp.nom,prixVente:p.prixVente||String(sp.prixVente||""),image:p.image||sp.image||"",stockInitial:p.stockInitial||String(sp.stock||""),conditionnement:p.conditionnement||sp.conditionnement||""}));
     }
     setShowShopifyPicker(false); setLinkTargetId(null);
   }

@@ -5,13 +5,17 @@ async function fetchBoutiqueProducts(domaine, token, boutiqueNom) {
     { headers:{ "X-Shopify-Access-Token":token } });
   if (!r.ok) throw new Error(`${boutiqueNom}: erreur ${r.status}`);
   const data = await r.json();
-  return (data.products||[]).map(p => ({
-    shopifyId:String(p.id), nom:p.title, categorie:p.product_type||"Général",
-    prixVente:parseFloat(p.variants?.[0]?.price||0),
-    stock:p.variants?.reduce((s,v)=>s+(v.inventory_quantity||0),0)||0,
-    image:p.image?.src||null,
-    boutiqueNom,
-  }));
+  return (data.products||[]).map(p => {
+    const v0 = p.variants?.[0];
+    return {
+      shopifyId:String(p.id), nom:p.title, categorie:p.product_type||"Général",
+      prixVente:parseFloat(v0?.price||0),
+      stock:p.variants?.reduce((s,v)=>s+(v.inventory_quantity||0),0)||0,
+      image:p.image?.src||null,
+      conditionnement:(v0&&v0.title&&v0.title!=="Default Title")?v0.title:"",
+      boutiqueNom,
+    };
+  });
 }
 
 export default async function handler(req, res) {
