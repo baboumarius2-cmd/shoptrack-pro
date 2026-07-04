@@ -3,90 +3,102 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --navy: #0F1B3C;
-  --navy-light: #1A2B52;
-  --navy-card: #16244A;
-  --gold: #E5B567;
-  --gold-bright: #F0C674;
-  --gold-dark: #C99A4B;
-  --bg: #F7F8FB;
+  /* ── ACCENT BLEU/INDIGO FINTECH ── */
+  --brand: #4F46E5;
+  --brand-bright: #6366F1;
+  --brand-dark: #4338CA;
+  --brand-soft: #EEF0FE;
+  --navy: #1E293B;
+  --navy-light: #334155;
+  --navy-card: #1E293B;
+  /* alias gardés pour compatibilité (anciens boutons "gold") */
+  --gold: #4F46E5;
+  --gold-bright: #6366F1;
+  --gold-dark: #4338CA;
+
+  --bg: #F8FAFC;
   --card: #FFFFFF;
-  --text: #0F1B3C;
-  --text-soft: #5B6B8C;
-  --text-mute: #9AA8C4;
-  --border: #E8ECF4;
-  --green: #2BB673;
-  --green-bg: #E3F7EE;
-  --red: #E5484D;
-  --red-bg: #FDEAEA;
-  --orange: #F2922C;
-  --orange-bg: #FEF1E2;
+  --text: #0F172A;
+  --text-soft: #475569;
+  --text-mute: #94A3B8;
+  --border: #E9EDF3;
+  --green: #10B981;
+  --green-bg: #E7F8F0;
+  --red: #EF4444;
+  --red-bg: #FDECEC;
+  --orange: #F59E0B;
+  --orange-bg: #FEF3E2;
   --blue: #3B82F6;
   --blue-bg: #E8F1FE;
   --purple: #8B5CF6;
-  --radius: 14px;
-  --radius-sm: 10px;
-  --radius-lg: 20px;
-  --shadow-sm: 0 1px 2px rgba(15,27,60,0.06);
-  --shadow: 0 4px 16px rgba(15,27,60,0.08);
-  --shadow-lg: 0 12px 32px rgba(15,27,60,0.12);
-  --shadow-gold: 0 6px 20px rgba(229,181,103,0.35);
+  --radius: 16px;
+  --radius-sm: 11px;
+  --radius-lg: 22px;
+  --shadow-sm: 0 1px 3px rgba(15,23,42,0.05);
+  --shadow: 0 6px 20px rgba(15,23,42,0.07);
+  --shadow-lg: 0 16px 40px rgba(15,23,42,0.12);
+  --shadow-brand: 0 8px 22px rgba(79,70,229,0.32);
+  --glass-bg: rgba(248,250,252,0.72);
 }
 
-html, body { background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+html, body { background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', sans-serif; -webkit-font-smoothing: antialiased; transition: background .4s ease, color .4s ease; }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-thumb { background: #CBD5E8; border-radius: 5px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 6px; }
 
 @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
 @keyframes slideUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+@keyframes slideOutRight { from{opacity:1;transform:translateX(0)} to{opacity:0;transform:translateX(60px)} }
 @keyframes scaleIn { from{opacity:0;transform:scale(0.96)} to{opacity:1;transform:scale(1)} }
 @keyframes spin { to{transform:rotate(360deg)} }
 @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-@keyframes glow { 0%,100%{box-shadow:0 0 20px rgba(229,181,103,0.3)} 50%{box-shadow:0 0 32px rgba(229,181,103,0.5)} }
+@keyframes popIn { 0%{transform:scale(0);opacity:0} 60%{transform:scale(1.15)} 100%{transform:scale(1);opacity:1} }
+@keyframes checkPop { 0%{transform:scale(0) rotate(-20deg);opacity:0} 60%{transform:scale(1.2) rotate(5deg)} 100%{transform:scale(1) rotate(0);opacity:1} }
 
 .fadeIn { animation: fadeIn 0.4s ease both; }
 .slideUp { animation: slideUp 0.4s ease both; }
 .scaleIn { animation: scaleIn 0.25s ease both; }
+.slideOut { animation: slideOutRight 0.35s ease forwards; }
 
 input, textarea, select, button { font-family: inherit; }
 
 .input {
   width:100%; padding:12px 14px; border-radius:var(--radius-sm);
-  border:1.5px solid var(--border); background:#fff; color:var(--text);
-  font-size:14px; outline:none; transition:border-color .15s, box-shadow .15s;
+  border:1.5px solid var(--border); background:var(--card); color:var(--text);
+  font-size:14px; outline:none; transition:border-color .18s, box-shadow .18s;
 }
-.input:focus { border-color:var(--gold); box-shadow:0 0 0 3px rgba(229,181,103,0.15); }
+.input:focus { border-color:var(--brand); box-shadow:0 0 0 3px rgba(79,70,229,0.15); }
 .input::placeholder { color:var(--text-mute); }
 
 .card {
   background:var(--card); border-radius:var(--radius);
   border:1px solid var(--border); box-shadow:var(--shadow-sm);
-  transition:box-shadow .2s, transform .2s;
+  transition:box-shadow .25s ease, transform .25s ease, border-color .25s ease;
 }
+.card-hover:hover { box-shadow:var(--shadow-lg); transform:translateY(-3px); }
 
 .btn {
   display:inline-flex; align-items:center; justify-content:center; gap:7px;
   padding:11px 18px; border-radius:var(--radius-sm); border:none; cursor:pointer;
-  font-size:14px; font-weight:600; transition:all .15s; white-space:nowrap;
+  font-size:14px; font-weight:600; transition:transform .18s ease, box-shadow .18s ease, background .18s ease; white-space:nowrap;
 }
 .btn:active { transform:scale(0.97); }
 .btn:disabled { opacity:.5; cursor:not-allowed; }
-.btn-gold { background:linear-gradient(135deg,var(--gold-bright),var(--gold-dark)); color:var(--navy); box-shadow:var(--shadow-gold); }
-.btn-gold:hover:not(:disabled) { transform:translateY(-1px); }
+.btn-gold { background:linear-gradient(135deg,var(--brand-bright),var(--brand-dark)); color:#fff; box-shadow:var(--shadow-brand); }
+.btn-gold:hover:not(:disabled) { transform:translateY(-2px); box-shadow:0 12px 28px rgba(79,70,229,0.42); }
 .btn-navy { background:var(--navy); color:#fff; }
-.btn-outline { background:#fff; color:var(--text-soft); border:1.5px solid var(--border); }
-.btn-outline:hover { border-color:var(--text-mute); }
+.btn-outline { background:var(--card); color:var(--text-soft); border:1.5px solid var(--border); }
+.btn-outline:hover { border-color:var(--brand); color:var(--brand); }
 
 .sheet-overlay {
-  position:fixed; inset:0; background:rgba(15,27,60,0.45); backdrop-filter:blur(4px);
+  position:fixed; inset:0; background:rgba(15,23,42,0.5); backdrop-filter:blur(6px);
   z-index:200; display:flex; align-items:flex-end; justify-content:center; animation:fadeIn .2s ease;
 }
 .sheet {
-  background:#fff; border-radius:24px 24px 0 0; padding:24px; width:100%;
+  background:var(--card); border-radius:24px 24px 0 0; padding:24px; width:100%;
   max-width:560px; max-height:92vh; overflow-y:auto; animation:slideUp .3s ease;
-  box-shadow:0 -8px 32px rgba(15,27,60,0.16);
+  box-shadow:0 -8px 32px rgba(15,23,42,0.2);
 }
 
 @media (min-width:768px) {
@@ -94,4 +106,4 @@ input, textarea, select, button { font-family: inherit; }
   .sheet-overlay { align-items:center; padding:20px; }
 }
 
-.skel { background:linear-gradient(90deg,#EEF1F7 25%,#E2E7F0 50%,#EEF1F7 75%); background-size:200% 100%; animation:shimmer 1.4s infinite; border-radius:8px; }
+.skel { background:linear-gradient(90deg,var(--border) 25%,rgba(148,163,184,0.18) 50%,var(--border) 75%); background-size:200% 100%; animation:shimmer 1.4s infinite; border-radius:10px; }

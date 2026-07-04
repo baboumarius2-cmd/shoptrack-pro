@@ -423,18 +423,24 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
 ::-webkit-scrollbar-thumb{background:#CBD5E8;border-radius:5px}
 
 /* THÈME CLAIR (défaut) */
-.theme-clair{--bg:#F7F8FB;--card:#fff;--text:#0F1B3C;--text-soft:#5B6B8C;--text-mute:#9AA8C4;--border:#E8ECF4;--input-bg:#fff;--topbar-bg:#fff;}
+.theme-clair{--bg:#F8FAFC;--card:#FFFFFF;--text:#0F172A;--text-soft:#475569;--text-mute:#94A3B8;--border:#E9EDF3;--input-bg:#FFFFFF;--topbar-bg:rgba(248,250,252,0.72);--sidebar-bg:#0F172A;--brand:#4F46E5;--brand-bright:#6366F1;}
 /* THÈME SOMBRE */
-.theme-sombre{--bg:#0B1220;--card:#16213E;--text:#EAF0FF;--text-soft:#9FB0D0;--text-mute:#6B7B9C;--border:#243355;--input-bg:#1A2742;--topbar-bg:#111B30;}
+.theme-sombre{--bg:#0F172A;--card:#1E293B;--text:#F1F5F9;--text-soft:#94A3B8;--text-mute:#64748B;--border:#293548;--input-bg:#243349;--topbar-bg:rgba(15,23,42,0.72);--sidebar-bg:#0B1220;--brand:#6366F1;--brand-bright:#818CF8;}
 
 .app-root{background:var(--bg);color:var(--text);}
 .app-root .card{background:var(--card)!important;border-color:var(--border)!important;}
-.app-root .topbar{background:var(--topbar-bg)!important;border-color:var(--border)!important;}
+.app-root .topbar{background:var(--topbar-bg)!important;border-color:var(--border)!important;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
 .app-root .input{background:var(--input-bg)!important;color:var(--text)!important;border-color:var(--border)!important;}
 
 /* En mode sombre, adoucir les textes très foncés codés en dur */
 .theme-sombre .order-card .order-client{color:var(--text)!important;}
 .theme-sombre h1,.theme-sombre h2,.theme-sombre h3{color:var(--text);}
+.theme-sombre .stat-card>div{color:var(--text);}
+
+/* Toggle thème animé */
+.theme-toggle{position:relative;overflow:hidden;transition:background .3s ease,border-color .3s ease;}
+.theme-toggle:hover{transform:translateY(-1px);}
+.theme-toggle .ic{display:inline-block;animation:popIn .35s ease;}
 
 /* Barre de navigation mobile (cachée sur ordinateur) */
 .mobile-nav{display:none;}
@@ -486,7 +492,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
             </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <button onClick={()=>setTheme(t=>{const nt=t==="clair"?"sombre":"clair"; saveSettings({theme:nt}); return nt;})} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:16}}>{theme==="clair"?"🌙":"☀️"}</button>
+            <button onClick={()=>setTheme(t=>{const nt=t==="clair"?"sombre":"clair"; saveSettings({theme:nt}); return nt;})} className="theme-toggle" style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}><span className="ic" key={theme}>{theme==="clair"?"🌙":"☀️"}</span></button>
             <button onClick={()=>{loadOrders(viewDate);toast("🔄 Actualisé");}} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:refreshing?"#E5B567":"var(--text-soft)"}}>{refreshing?<Spin size={16}/>:"🔄"}</button>
             {isLivreur&&<button onClick={logout} style={{padding:"8px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:13,color:"var(--text-soft)",fontWeight:600}}>🚪</button>}
             {can('commandes')&&tab==="commandes"&&<button onClick={()=>setShowAddOrder(true)} className="btn btn-gold" style={{padding:"9px 16px"}}>✍️ Ajouter</button>}
@@ -504,7 +510,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                 <Stat label="En attente" value={enAttente.length} icon="⏳" color="#F2922C"/>
                 {isPatron&&<Stat label="Net du jour" value={fmt(beneficeJour-depJour)+" F"} icon="💰" color="#8B5CF6"/>}
               </div>
-              {refreshing&&orders.length===0?<Loader text="Chargement des commandes Shopify..."/>:(
+              {refreshing&&orders.length===0?<OrderSkeleton/>:(
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:18}}>
                   {[{t:"🏙️ Abidjan",items:abidjan,c:"#6366F1",bg:"#EEF0FE"},{t:"🛣️ Hors Abidjan",items:hors,c:"#E5B567",bg:"#FBF4E6"},{t:"❓ Inconnu",items:autre,c:"#9AA8C4",bg:"#F2F4F8"}].map(({t,items,c,bg})=>(
                     <div key={t}>
@@ -565,7 +571,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {/* BARRE NAVIGATION MOBILE */}
       <div className="mobile-nav">
         {navItems.slice(0,4).map(it=>(
-          <button key={it.id} onClick={()=>setTab(it.id)} className="mobile-nav-item" style={{background:tab===it.id?"rgba(229,181,103,0.15)":"none",color:tab===it.id?"#E5B567":"var(--text-mute)"}}>
+          <button key={it.id} onClick={()=>setTab(it.id)} className="mobile-nav-item" style={{background:tab===it.id?"rgba(99,102,241,0.16)":"none",color:tab===it.id?"var(--brand)":"var(--text-mute)"}}>
             <span className="ic">{it.icon}</span><span className="lb">{it.label}</span>
           </button>
         ))}
@@ -689,11 +695,11 @@ function PinPad({value,onChange,length=4,color}){
 
 function LoginHome({ROLES,onPick}){
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F1B3C 0%,#1A2B52 60%,#0F1B3C 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F172A 0%,#1E293B 55%,#0F172A 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}`}</style>
       <div style={{maxWidth:440,width:"100%",animation:"fadeIn .5s ease"}}>
         <div style={{textAlign:"center",marginBottom:44}}>
-          <div style={{width:84,height:84,borderRadius:24,background:"linear-gradient(135deg,#F0C674,#C99A4B)",margin:"0 auto 20px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,boxShadow:"0 0 50px rgba(229,181,103,0.4)",animation:"float 3s ease-in-out infinite"}}>🛍️</div>
+          <div style={{width:84,height:84,borderRadius:24,background:"linear-gradient(135deg,#6366F1,#4338CA)",margin:"0 auto 20px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,boxShadow:"0 0 50px rgba(79,70,229,0.45)",animation:"float 3s ease-in-out infinite"}}>🛍️</div>
           <h1 style={{fontSize:34,fontWeight:800,color:"#fff",letterSpacing:"-1px"}}>Yah-ni Store</h1>
           <p style={{color:"#9AA8C4",fontSize:14,marginTop:4}}>Gestion intelligente · yahni.store</p>
         </div>
@@ -724,7 +730,7 @@ function LoginHome({ROLES,onPick}){
 function LoginPwd({ROLES,role,pwd,setPwd,err,setErr,auth,onBack,onLogin}){
   const r = ROLES[role] || {icon:"👤",label:role,color:"#8B5CF6"};
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F1B3C,#1A2B52)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F172A,#1E293B)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <div style={{maxWidth:370,width:"100%",animation:"fadeIn .4s ease"}}>
         <button onClick={onBack} style={{color:"#9AA8C4",background:"none",border:"none",cursor:"pointer",fontSize:13,marginBottom:28,fontFamily:"inherit"}}>← Retour</button>
@@ -746,7 +752,7 @@ function SetupPwd({ROLES,role,sPwd,setSPwd,sPwd2,setSPwd2,sErr,setSErr,auth,onSe
   const r = ROLES[role] || {icon:"👤",label:role,color:"#8B5CF6"};
   const step = sPwd.length<4 ? 1 : 2;
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F1B3C,#1A2B52)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(150deg,#0F172A,#1E293B)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <div style={{maxWidth:370,width:"100%",animation:"fadeIn .4s ease"}}>
         <div style={{background:"rgba(255,255,255,0.05)",backdropFilter:"blur(20px)",borderRadius:22,padding:32,border:"1px solid rgba(255,255,255,0.08)"}}>
@@ -772,19 +778,19 @@ function SetupPwd({ROLES,role,sPwd,setSPwd,sPwd2,setSPwd2,sErr,setSErr,auth,onSe
 function Sidebar({ROLES,role,navItems,tab,setTab,reportees,todayOrders,livrees,enAttente,beneficeJour,depJour,canVoirMontants,onSettings,onLogout}){
   const r = ROLES[role]||{icon:"👤",label:role};
   return (
-    <div style={{width:240,background:"#0F1B3C",minHeight:"100vh",position:"fixed",left:0,top:0,bottom:0,display:"flex",flexDirection:"column",zIndex:100}}>
+    <div style={{width:240,background:"var(--sidebar-bg)",minHeight:"100vh",position:"fixed",left:0,top:0,bottom:0,display:"flex",flexDirection:"column",zIndex:100,transition:"background .4s ease"}}>
       <div style={{padding:"22px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:42,height:42,borderRadius:12,background:"linear-gradient(135deg,#F0C674,#C99A4B)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🛍️</div>
+          <div style={{width:42,height:42,borderRadius:12,background:"linear-gradient(135deg,#6366F1,#4338CA)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,boxShadow:"0 4px 14px rgba(79,70,229,0.4)"}}>🛍️</div>
           <div>
             <div style={{color:"#fff",fontWeight:700,fontSize:15}}>Yah-ni Store</div>
-            <div style={{color:"#E5B567",fontSize:11,fontWeight:600}}>{r.icon} {r.label}</div>
+            <div style={{color:"#818CF8",fontSize:11,fontWeight:600}}>{r.icon} {r.label}</div>
           </div>
         </div>
       </div>
       {canVoirMontants&&<div style={{padding:"14px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          {[{v:todayOrders.length,l:"Commandes",c:"#E5B567"},{v:livrees.length,l:"Livrées",c:"#2BB673"},{v:fmt(beneficeJour-depJour)+"F",l:"Net jour",c:"#8B5CF6"},{v:enAttente.length,l:"Attente",c:"#F2922C"}].map(({v,l,c})=>(
+          {[{v:todayOrders.length,l:"Commandes",c:"#818CF8"},{v:livrees.length,l:"Livrées",c:"#34D399"},{v:fmt(beneficeJour-depJour)+"F",l:"Net jour",c:"#A78BFA"},{v:enAttente.length,l:"Attente",c:"#FBBF24"}].map(({v,l,c})=>(
             <div key={l} style={{background:"rgba(255,255,255,0.04)",borderRadius:8,padding:"8px 10px"}}>
               <div style={{fontSize:15,fontWeight:800,color:c}}>{v}</div>
               <div style={{fontSize:10,color:"#6B7B9C",marginTop:1}}>{l}</div>
@@ -794,9 +800,9 @@ function Sidebar({ROLES,role,navItems,tab,setTab,reportees,todayOrders,livrees,e
       </div>}
       <nav style={{flex:1,padding:12}}>
         {navItems.map(it=>(
-          <button key={it.id} onClick={()=>setTab(it.id)} style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"none",cursor:"pointer",background:tab===it.id?"rgba(229,181,103,0.15)":"transparent",color:tab===it.id?"#E5B567":"#9AA8C4",display:"flex",alignItems:"center",gap:11,fontSize:14,fontWeight:tab===it.id?600:500,marginBottom:2,fontFamily:"inherit",textAlign:"left",transition:"all .15s"}}>
+          <button key={it.id} onClick={()=>setTab(it.id)} style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"none",cursor:"pointer",background:tab===it.id?"rgba(99,102,241,0.18)":"transparent",color:tab===it.id?"#818CF8":"#94A3B8",display:"flex",alignItems:"center",gap:11,fontSize:14,fontWeight:tab===it.id?600:500,marginBottom:2,fontFamily:"inherit",textAlign:"left",transition:"all .15s"}}>
             <span style={{fontSize:17,width:22,textAlign:"center"}}>{it.icon}</span>{it.label}
-            {it.id==="reportees"&&reportees.length>0&&<span style={{marginLeft:"auto",background:"#E5484D",color:"#fff",borderRadius:20,padding:"1px 7px",fontSize:10,fontWeight:700}}>{reportees.length}</span>}
+            {it.id==="reportees"&&reportees.length>0&&<span style={{marginLeft:"auto",background:"#EF4444",color:"#fff",borderRadius:20,padding:"1px 7px",fontSize:10,fontWeight:700}}>{reportees.length}</span>}
           </button>
         ))}
       </nav>
@@ -811,6 +817,28 @@ function Sidebar({ROLES,role,navItems,tab,setTab,reportees,todayOrders,livrees,e
 /* ════════ CARDS & TABS (suite dans le fichier) ════════ */
 function Loader({text}){return (<div style={{textAlign:"center",padding:60}}><Spin size={32}/><p style={{color:"#9AA8C4",marginTop:14,fontSize:14}}>{text}</p></div>);}
 function Empty({icon,title,sub}){return (<div style={{textAlign:"center",padding:60,color:"#9AA8C4"}}><div style={{fontSize:46,marginBottom:12}}>{icon}</div><p style={{fontSize:16,fontWeight:600,marginBottom:6}}>{title}</p>{sub?<p style={{fontSize:13}}>{sub}</p>:null}</div>);}
+function OrderSkeleton(){
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:18}}>
+      {[0,1,2].map(col=>(
+        <div key={col}>
+          <div className="skel" style={{height:40,marginBottom:12}}/>
+          {[0,1].map(k=>(
+            <div key={k} className="card" style={{padding:"14px 16px",marginBottom:10}}>
+              <div className="skel" style={{height:12,width:"40%",marginBottom:10}}/>
+              <div className="skel" style={{height:16,width:"70%",marginBottom:8}}/>
+              <div className="skel" style={{height:12,width:"55%",marginBottom:12}}/>
+              <div style={{display:"flex",gap:8}}>
+                <div className="skel" style={{height:34,flex:1}}/>
+                <div className="skel" style={{height:34,flex:1}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function DateNav({viewDate,setViewDate}){
   const TODAY = new Date().toISOString().split("T")[0];
@@ -843,7 +871,7 @@ function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onTransfer
   const actionnable = o.statut==="en_attente" || isDue;
   const c=o.contacted||[], bc=badgeColor(o.commune);
   return (
-    <div className="card order-card" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${isLivree?"#2BB673":isBad?"#E5484D":isRep?"#E5B567":"#E8ECF4"}`}}>
+    <div className="card order-card card-hover" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${isLivree?"#10B981":isBad?"#EF4444":isRep?"#F59E0B":"#6366F1"}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
         <div style={{flex:1}}>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,flexWrap:"wrap"}}>

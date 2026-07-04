@@ -94,12 +94,14 @@ function Sheet({children,onClose,title}){
   );
 }
 function Stat({label,value,icon,color,sub}){
+  const c = color||"var(--brand,#4F46E5)";
   return (
-    <div className="card fadeIn stat-card" style={{padding:16,position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-6,right:-6,fontSize:42,opacity:0.05}}>{icon}</div>
-      <div className="stat-label" style={{fontSize:11,color:"var(--text-soft,#5B6B8C)",fontWeight:600,textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>{label}</div>
-      <div className="stat-value" style={{fontSize:22,fontWeight:800,color:color||"var(--text,#0F1B3C)",letterSpacing:"-.5px"}}>{value}</div>
-      {sub&&<div style={{fontSize:11,color:"var(--text-mute,#9AA8C4)",marginTop:3}}>{sub}</div>}
+    <div className="card fadeIn stat-card card-hover" style={{padding:18,position:"relative",overflow:"hidden"}}>
+      <div style={{position:"absolute",top:0,left:0,width:4,height:"100%",background:c,opacity:0.9}}/>
+      <div style={{position:"absolute",top:-10,right:-6,fontSize:46,opacity:0.06}}>{icon}</div>
+      <div className="stat-label" style={{fontSize:11,color:"var(--text-soft,#5B6B8C)",fontWeight:600,textTransform:"uppercase",letterSpacing:".04em",marginBottom:7,paddingLeft:6}}>{label}</div>
+      <div className="stat-value" style={{fontSize:24,fontWeight:800,color:c,letterSpacing:"-.5px",paddingLeft:6}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:"var(--text-mute,#9AA8C4)",marginTop:3,paddingLeft:6}}>{sub}</div>}
     </div>
   );
 }
