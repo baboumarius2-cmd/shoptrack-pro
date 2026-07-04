@@ -303,6 +303,13 @@ function AppInner() {
     window.open(`tel:+${o.phone.replace(/\D/g,"")}`,"_blank");
     const c=[...(o.contacted||[])]; if(!c.includes("appel"))c.push("appel"); updateOrder(o,{contacted:c});
   }
+  function smsCli(o){
+    const p = o.phone.replace(/\D/g,"");
+    const msg = msgTemplate.replace("{nom}",o.client).replace("{produit}",o.produit).replace("{prix}",fmt(o.prix));
+    window.open(`sms:+${p}?body=${encodeURIComponent(msg)}`,"_blank");
+    const c=[...(o.contacted||[])]; if(!c.includes("sms"))c.push("sms"); updateOrder(o,{contacted:c});
+    toast("✉️ SMS ouvert");
+  }
   function transfer(o){
     // Ouvre le choix SMS / WhatsApp
     setModal({type:"transfer", order:o});
@@ -518,7 +525,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                         <span style={{fontWeight:700,fontSize:14,color:c}}>{t}</span>
                         <span style={{marginLeft:"auto",background:c,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{items.length}</span>
                       </div>
-                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
                     </div>
                   ))}
                 </div>
@@ -562,7 +569,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {tab==="reportees" && can('reportees') && (
             <div className="fadeIn">
               <div style={{background:"#FBF4E6",border:"1px solid #F0DFB8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#8A6D2F"}}>⏰ Ces commandes réapparaissent automatiquement le jour choisi</div>
-              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
             </div>
           )}
         </div>
@@ -865,7 +872,7 @@ function DateNav({viewDate,setViewDate}){
   );
 }
 
-function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onTransfer,viewDate}){
+function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onSMS,onTransfer,viewDate}){
   const isDue = o.statut==="reportee" && o.reportDate===viewDate; // reportée arrivée à échéance → ré-actionnable
   const isLivree=o.statut==="livree",isBad=o.statut==="non_livree",isRep=o.statut==="reportee" && !isDue;
   const actionnable = o.statut==="en_attente" || isDue;
@@ -898,18 +905,33 @@ function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onTransfer
         </div>
       </div>
       {(c.length>0||o.transferred)&&<div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
-        {c.includes("whatsapp")&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#E3F7EE",color:"#1E8E54",fontWeight:600}}>💬 WA</span>}
+        {c.includes("whatsapp")&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#E3F7EE",color:"#1E8E54",fontWeight:600}}>💬 WA envoyé</span>}
+        {c.includes("sms")&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#E8F1FE",color:"#2563EB",fontWeight:600}}>✉️ SMS envoyé</span>}
         {c.includes("appel")&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>📞 Appelé</span>}
-        {o.transferred&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>📤 Transféré</span>}
+        {o.transferred&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>📤 Chez le livreur</span>}
       </div>}
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:actionnable?10:0}}>
-        <button onClick={onCall} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#7C3AED",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📞</button>
-        <button onClick={onWA} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#1E8E54",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>💬 WA</button>
-        {!o.transferred?<button onClick={onTransfer} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #F0DFB8",background:"#FBF4E6",color:"#C99A4B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📤 Livreur</button>:<span style={{fontSize:11,color:"#C99A4B",fontWeight:500,padding:"6px 2px"}}>✓ Transféré</span>}
+
+      {/* ── ZONE CONTACT CLIENT ── */}
+      <div style={{background:"var(--blue-bg,#E8F1FE)",borderRadius:12,padding:"9px 10px",marginBottom:8}}>
+        <div style={{fontSize:9,fontWeight:800,color:"#2563EB",letterSpacing:".06em",marginBottom:7,textTransform:"uppercase"}}>👤 Contacter le client</div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={onCall} style={{flex:1,padding:"9px 6px",borderRadius:9,border:"none",background:"#fff",color:"#7C3AED",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(15,23,42,0.06)"}}>📞 Appeler</button>
+          <button onClick={onWA} style={{flex:1,padding:"9px 6px",borderRadius:9,border:"none",background:"#25D366",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(37,211,102,0.35)"}}>💬 WhatsApp</button>
+          <button onClick={onSMS} style={{flex:1,padding:"9px 6px",borderRadius:9,border:"none",background:"#2563EB",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(37,99,235,0.35)"}}>✉️ SMS</button>
+        </div>
       </div>
-      {actionnable&&<div style={{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid #F2F4F8"}}>
-        <button onClick={onLivrer} style={{flex:1,padding:9,borderRadius:10,border:"none",cursor:"pointer",background:"#E3F7EE",color:"#1E8E54",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>✓ Livré</button>
-        <button onClick={onMotif} style={{flex:1,padding:9,borderRadius:10,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>✗ Problème</button>
+
+      {/* ── ZONE LIVREUR ── */}
+      <div style={{background:"var(--orange-bg,#FEF3E2)",borderRadius:12,padding:"9px 10px",marginBottom:actionnable?10:0}}>
+        <div style={{fontSize:9,fontWeight:800,color:"#B45309",letterSpacing:".06em",marginBottom:7,textTransform:"uppercase"}}>🛵 Livreur</div>
+        {!o.transferred
+          ? <button onClick={onTransfer} style={{width:"100%",padding:"9px 6px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#F59E0B,#D97706)",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(217,119,6,0.35)"}}>📤 Envoyer la commande au livreur</button>
+          : <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#B45309",fontWeight:600,justifyContent:"center",padding:"4px 0"}}>✓ Commande déjà chez le livreur</div>}
+      </div>
+
+      {actionnable&&<div style={{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid var(--border,#F2F4F8)"}}>
+        <button onClick={onLivrer} style={{flex:1,padding:11,borderRadius:10,border:"none",cursor:"pointer",background:"#E3F7EE",color:"#1E8E54",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>✓ Livré</button>
+        <button onClick={onMotif} style={{flex:1,padding:11,borderRadius:10,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>✗ Problème</button>
       </div>}
     </div>
   );
