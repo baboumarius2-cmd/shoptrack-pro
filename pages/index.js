@@ -173,36 +173,33 @@ function AppInner() {
       const [shopR, savedR] = await Promise.all([ fetch(`/api/shopify?date=${d}`), fetch("/api/orders") ]);
       const shop = await shopR.json();
       const saved = await savedR.json();
+      // Protection : si Shopify n'a rien renvoyé du tout (erreur), on garde la liste actuelle au lieu de l'écraser
+      if(!shop.orders){ setRefreshing(false); return; }
       const savedMap = {};
       (saved||[]).forEach(o=>{ savedMap[o.shopify_id]=o; });
-      let merged = [];
-      if(shop.orders){
-        merged = shop.orders.map(o=>{
-          const s = savedMap[o.shopifyId];
-          return s ? {...o, statut:s.statut||"en_attente", motif:s.motif||"", reportDate:s.report_date||"", contacted:s.contacted||[], transferred:s.transferred||false, livreurStatut:s.livreur_statut||"en_attente", wasReported:s.was_reported||false} : o;
-        });
-      }
-      const manuals = (saved||[]).filter(o=>o.is_manual).map(o=>({
+      const fromSaved = (o, statutForce) => ({
         id:o.numero||o.shopify_id, shopifyId:o.shopify_id, numero:o.numero, client:o.client, phone:o.phone||"",
         produit:o.produit, produitId:o.produit_id||"", quantite:o.quantite||1, prix:o.prix||0,
         commune:o.commune||"Inconnu", adresse:o.adresse||o.commune, livraison:2000,
-        statut:o.statut||"en_attente", date:o.date, heure:o.heure||"", contacted:o.contacted||[],
+        statut:statutForce||o.statut||"en_attente", date:o.date, heure:o.heure||"", contacted:o.contacted||[],
         transferred:o.transferred||false, livreurStatut:o.livreur_statut||"en_attente",
-        note:o.note||"", motif:o.motif||"", reportDate:o.report_date||"", wasReported:o.was_reported||false, isManual:true,
+        note:o.note||"", motif:o.motif||"", reportDate:o.report_date||"", wasReported:o.was_reported||false, isManual:!!o.is_manual,
         boutiqueNom:o.boutique_nom||"", boutiqueId:o.boutique_id||"",
-      }));
-      // Commandes reportées (Shopify) sauvegardées : les ré-injecter même si Shopify ne les renvoie pas pour cette date
+        statutPar:o.statut_par||"", statutHeure:o.statut_heure||"",
+      });
+      const merged = shop.orders.map(o=>{
+        const s = savedMap[o.shopifyId];
+        return s ? {...o, statut:s.statut||"en_attente", motif:s.motif||"", reportDate:s.report_date||"", contacted:s.contacted||[], transferred:s.transferred||false, livreurStatut:s.livreur_statut||"en_attente", wasReported:s.was_reported||false, statutPar:s.statut_par||"", statutHeure:s.statut_heure||""} : o;
+      });
       const mergedIds = new Set(merged.map(m=>m.shopifyId));
-      const reportedSaved = (saved||[]).filter(o=>!o.is_manual && o.statut==="reportee" && !mergedIds.has(o.shopify_id)).map(o=>({
-        id:o.numero||o.shopify_id, shopifyId:o.shopify_id, numero:o.numero, client:o.client, phone:o.phone||"",
-        produit:o.produit, produitId:o.produit_id||"", quantite:o.quantite||1, prix:o.prix||0,
-        commune:o.commune||"Inconnu", adresse:o.adresse||o.commune, livraison:2000,
-        statut:"reportee", date:o.date, heure:o.heure||"", contacted:o.contacted||[],
-        transferred:o.transferred||false, livreurStatut:o.livreur_statut||"en_attente",
-        note:o.note||"", motif:o.motif||"", reportDate:o.report_date||"", wasReported:o.was_reported||false, isManual:false,
-        boutiqueNom:o.boutique_nom||"", boutiqueId:o.boutique_id||"",
-      }));
-      setOrders([...merged, ...manuals, ...reportedSaved]);
+      const manuals = (saved||[]).filter(o=>o.is_manual).map(o=>fromSaved(o));
+      // Commandes reportées (Shopify) sauvegardées : les ré-injecter même si Shopify ne les renvoie pas pour cette date
+      const reportedSaved = (saved||[]).filter(o=>!o.is_manual && o.statut==="reportee" && !mergedIds.has(o.shopify_id)).map(o=>fromSaved(o,"reportee"));
+      // Filet de sécurité anti-disparition : les commandes Shopify du jour demandé déjà
+      // enregistrées en base (statut, contact...) mais absentes de la réponse Shopify
+      // (erreur partielle d'une boutique, limite API...) sont conservées à l'écran
+      const rescuedSaved = (saved||[]).filter(o=>!o.is_manual && o.statut!=="reportee" && o.date===d && !mergedIds.has(o.shopify_id)).map(o=>fromSaved(o));
+      setOrders([...merged, ...manuals, ...reportedSaved, ...rescuedSaved]);
     }catch(e){ console.error(e); }
     setRefreshing(false);
   },[]);
@@ -258,6 +255,8 @@ function AppInner() {
       transferred:updates.transferred!==undefined?updates.transferred:o.transferred,
       livreur_statut:updates.livreurStatut!==undefined?updates.livreurStatut:o.livreurStatut,
       was_reported:updates.wasReported!==undefined?updates.wasReported:o.wasReported,
+      statut_par:updates.statutPar!==undefined?updates.statutPar:(o.statutPar||null),
+      statut_heure:updates.statutHeure!==undefined?updates.statutHeure:(o.statutHeure||null),
     };
     await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",shopifyId:o.shopifyId,updates:body})});
   }
@@ -272,8 +271,9 @@ function AppInner() {
     }})});
   }
 
+  function nowHM(){ return new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); }
   async function doLivrer(o){
-    await updateOrder(o,{statut:"livree",livreurStatut:"livre"});
+    await updateOrder(o,{statut:"livree",livreurStatut:"livre",statutPar:currentRoleObj?.label||role,statutHeure:nowHM()});
     // decrement stock
     if(o.produitId){
       const prod = produits.find(p=>p.shopify_id===o.produitId);
@@ -285,7 +285,7 @@ function AppInner() {
   }
   function doMotif(o){
     const isRep = motifSel==="Reporter à une date";
-    updateOrder(o,{ statut:isRep?"reportee":"non_livree", motif:motifSel, ...(isRep&&reportDate?{reportDate,wasReported:true}:{}) });
+    updateOrder(o,{ statut:isRep?"reportee":"non_livree", motif:motifSel, statutPar:currentRoleObj?.label||role, statutHeure:nowHM(), ...(isRep&&reportDate?{reportDate,wasReported:true}:{}) });
     setModal(null); setMotifSel(""); setReportDate("");
     toast(isRep?`⏰ Reporté au ${reportDate}`:"✗ Motif enregistré", isRep?"info":"error");
   }
@@ -317,7 +317,7 @@ function AppInner() {
   function doTransfer(o, canal){
     const lp = (settings.livreur_phone||"").replace(/\D/g,"");
     updateOrder(o,{transferred:true});
-    const msg=`🛵 Nouvelle livraison Yah-ni\n\n👤 ${o.client}\n📞 ${o.phone}\n📍 ${o.adresse||o.commune}\n📦 ${o.produit}${o.boutiqueNom?`\n🏪 ${o.boutiqueNom}`:""}\n\nMerci ✅`;
+    const msg=`🛵 Nouvelle livraison Yah-ni\n\n👤 ${o.client}\n📞 ${o.phone}\n📍 ${o.adresse||o.commune}\n📦 ${o.produit}\n💰 À encaisser : ${fmt(o.prix)} F${o.boutiqueNom?`\n🏪 ${o.boutiqueNom}`:""}\n\nMerci ✅`;
     if(lp){
       if(canal==="sms") window.open(`sms:+${lp}?body=${encodeURIComponent(msg)}`,"_blank");
       else window.open(`https://wa.me/${lp}?text=${encodeURIComponent(msg)}`,"_blank");
@@ -329,7 +329,7 @@ function AppInner() {
   }
   function livreurUpdate(o, statut){
     const map={en_route:"en_attente",arrive:"en_attente",livre:"livree"};
-    updateOrder(o,{livreurStatut:statut, ...(statut==="livre"?{statut:"livree"}:{})});
+    updateOrder(o,{livreurStatut:statut, ...(statut==="livre"?{statut:"livree",statutPar:currentRoleObj?.label||role,statutHeure:nowHM()}:{})});
     toast(statut==="livre"?"✅ Marqué livré":statut==="en_route"?"🚗 En route":"📍 Arrivé");
   }
 
@@ -872,46 +872,76 @@ function DateNav({viewDate,setViewDate}){
   );
 }
 
+function initiales(nom){
+  const parts=(nom||"?").trim().split(/\s+/);
+  return ((parts[0]?.[0]||"")+(parts[1]?.[0]||parts[0]?.[1]||"")).toUpperCase()||"?";
+}
+
 function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onSMS,onTransfer,viewDate}){
   const isDue = o.statut==="reportee" && o.reportDate===viewDate; // reportée arrivée à échéance → ré-actionnable
   const isLivree=o.statut==="livree",isBad=o.statut==="non_livree",isRep=o.statut==="reportee" && !isDue;
   const actionnable = o.statut==="en_attente" || isDue;
   const c=o.contacted||[], bc=badgeColor(o.commune);
+  const borderColor = isLivree?"#10B981":isBad?"#EF4444":isRep?"#F59E0B":"#6366F1";
   return (
-    <div className="card order-card card-hover" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${isLivree?"#10B981":isBad?"#EF4444":isRep?"#F59E0B":"#6366F1"}`}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-        <div style={{flex:1}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,flexWrap:"wrap"}}>
-            <span style={{fontSize:10,color:"#9AA8C4",fontFamily:"monospace"}}>{o.numero||o.id}</span>
-            <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:bc+"18",color:bc,fontWeight:600}}>{displayCommune(o.commune)}</span>
-            {o.boutiqueNom&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:(o.boutiqueCouleur||"#E5B567")+"22",color:o.boutiqueCouleur||"#C99A4B",fontWeight:700}}>🏪 {o.boutiqueNom}</span>}
-            {o.isManual&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>✍️</span>}
-            {o.wasReported&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>↩️ Reporté</span>}
-          </div>
-          <div className="order-client" style={{fontWeight:700,fontSize:15,marginBottom:2,color:"var(--text)"}}>{o.client}</div>
-          <div className="order-produit" style={{color:"var(--text-soft)",fontSize:12,marginBottom:4}}>📦 {o.produit}</div>
-          <div style={{fontSize:12,color:"#5B6B8C",marginBottom:seePrix?4:0}}>📍 {o.adresse||o.commune}</div>
-          {seePrix&&<div style={{fontSize:12,color:"#2BB673",fontWeight:600}}>{fmt(o.prix)} F {isPatron&&<span style={{color:"#9AA8C4",fontWeight:400}}>· net {fmt((o.prix||0)-o.livraison)} F</span>}</div>}
-          {o.note&&<div style={{fontSize:11,color:"#9AA8C4",marginTop:2}}>📝 {o.note}</div>}
-          {o.motif&&<div style={{fontSize:11,color:"#5B6B8C",marginTop:2}}>Motif: {o.motif}</div>}
-          {o.reportDate&&<div style={{fontSize:11,color:"#C99A4B",marginTop:2,fontWeight:500}}>📅 Reporté au {o.reportDate}</div>}
+    <div className="card order-card card-hover" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${borderColor}`}}>
+
+      {/* ── EN-TÊTE : avatar + nom + n°/heure + badge statut ── */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+        <div style={{width:40,height:40,borderRadius:"50%",background:bc+"1E",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:bc,flexShrink:0}}>{initiales(o.client)}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="order-client" style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>{o.client}</div>
+          <div style={{fontSize:11,color:"var(--text-mute,#94A3B8)"}}>{o.numero||o.id}{o.heure?` · reçue à ${o.heure}`:""}</div>
         </div>
-        <div style={{textAlign:"right",marginLeft:8}}>
-          <div style={{fontSize:10,color:"#9AA8C4",marginBottom:6}}>🕐 {o.heure}</div>
-          {isLivree&&<span style={{fontSize:11,padding:"3px 8px",borderRadius:20,background:"#E3F7EE",color:"#1E8E54",fontWeight:600}}>✓ Livré</span>}
-          {isBad&&<span style={{fontSize:11,padding:"3px 8px",borderRadius:20,background:"#FDEAEA",color:"#C0392B",fontWeight:600}}>✗ Échoué</span>}
-          {isRep&&<span style={{fontSize:11,padding:"3px 8px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>⏰ Reporté</span>}
-          {isDue&&<span style={{fontSize:11,padding:"3px 8px",borderRadius:20,background:"#FEF3C7",color:"#B45309",fontWeight:700}}>↩️ Reporté à aujourd'hui</span>}
+        <div style={{textAlign:"right",flexShrink:0}}>
+          {isLivree&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#10B981",color:"#fff",fontWeight:700}}>✓ Livrée</span>}
+          {isBad&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#FDEAEA",color:"#C0392B",fontWeight:700}}>⚠️ Problème</span>}
+          {isRep&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:700}}>⏰ Reporté</span>}
+          {isDue&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#FEF3C7",color:"#B45309",fontWeight:700}}>↩️ Aujourd'hui</span>}
+          {actionnable&&!isDue&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"var(--orange-bg,#FEF3E2)",color:"#B45309",fontWeight:700}}>🕐 En attente</span>}
         </div>
       </div>
-      {(c.length>0||o.transferred)&&<div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
-        {c.includes("whatsapp")&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#E3F7EE",color:"#1E8E54",fontWeight:600}}>💬 WA envoyé</span>}
-        {c.includes("sms")&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#E8F1FE",color:"#2563EB",fontWeight:600}}>✉️ SMS envoyé</span>}
-        {c.includes("appel")&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>📞 Appelé</span>}
-        {o.transferred&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>📤 Chez le livreur</span>}
+
+      {/* ── BADGES : boutique, manuel, témoins de contact ── */}
+      <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+        {o.boutiqueNom&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:(o.boutiqueCouleur||"#6366F1")+"22",color:o.boutiqueCouleur||"#4F46E5",fontWeight:700}}>🏪 {o.boutiqueNom}</span>}
+        {o.isManual&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>✍️ Manuel</span>}
+        {o.wasReported&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>↩️ Reporté</span>}
+        {c.includes("whatsapp")&&<span style={{fontSize:10,color:"#1E8E54",fontWeight:600}}>✓ WhatsApp envoyé</span>}
+        {c.includes("sms")&&<span style={{fontSize:10,color:"#2563EB",fontWeight:600}}>✓ SMS envoyé</span>}
+        {c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:600}}>✓ Appelé</span>}
+        {o.transferred&&<span style={{fontSize:10,color:"#B45309",fontWeight:600}}>🛵 Chez le livreur</span>}
+      </div>
+
+      {/* ── PRODUIT ── */}
+      <div className="order-produit" style={{color:"var(--text-soft)",fontSize:13,marginBottom:8}}>📦 {o.produit}</div>
+      {o.note&&<div style={{fontSize:11,color:"var(--text-mute,#9AA8C4)",marginBottom:8}}>📝 {o.note}</div>}
+
+      {/* ── LIEU DE LIVRAISON (bien visible) ── */}
+      <div style={{background:"var(--blue-bg,#E8F1FE)",borderRadius:10,padding:"10px 12px",marginBottom:8,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:20,flexShrink:0}}>📍</span>
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#1D4ED8"}}>{displayCommune(o.commune)}</div>
+          {o.adresse&&o.adresse!==o.commune&&<div style={{fontSize:12,color:"#2563EB"}}>{o.adresse}</div>}
+        </div>
+      </div>
+
+      {/* ── MONTANT À ENCAISSER ── */}
+      {seePrix&&<div style={{background:"var(--bg,#F8FAFC)",border:"1px solid var(--border,#E9EDF3)",borderRadius:10,padding:"9px 12px",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span style={{fontSize:11,color:"var(--text-mute,#94A3B8)"}}>À encaisser</span>
+        <span style={{fontSize:19,fontWeight:800,color:"#10B981"}}>{fmt(o.prix)} F{isPatron&&<span style={{fontSize:10,color:"var(--text-mute,#9AA8C4)",fontWeight:400}}> · net {fmt((o.prix||0)-o.livraison)} F</span>}</span>
       </div>}
 
-      {/* ── ZONE CONTACT CLIENT ── */}
+      {o.reportDate&&isRep&&<div style={{fontSize:11,color:"#C99A4B",marginBottom:8,fontWeight:600}}>📅 Reporté au {o.reportDate}</div>}
+
+      {/* ── STATUT DÉTAILLÉ (vue supervision) ── */}
+      {isLivree&&(o.statutHeure||o.statutPar)&&<div style={{fontSize:12,color:"#1E8E54",fontWeight:600,marginBottom:8}}>✓ Livrée{o.statutHeure?` à ${o.statutHeure}`:""}{o.statutPar?` par ${o.statutPar}`:""}</div>}
+      {isBad&&<div style={{background:"#FDEAEA",borderRadius:10,padding:"9px 12px",marginBottom:8}}>
+        <div style={{fontSize:12,color:"#C0392B",fontWeight:600}}>💬 Motif : {o.motif||"non précisé"}{o.statutPar?` — signalé par ${o.statutPar}`:""}{o.statutHeure?` à ${o.statutHeure}`:""}</div>
+      </div>}
+
+      {/* ── ZONES D'ACTION (seulement si commande en attente) ── */}
+      {actionnable&&<>
       <div style={{background:"var(--blue-bg,#E8F1FE)",borderRadius:12,padding:"9px 10px",marginBottom:8}}>
         <div style={{fontSize:9,fontWeight:800,color:"#2563EB",letterSpacing:".06em",marginBottom:7,textTransform:"uppercase"}}>👤 Contacter le client</div>
         <div style={{display:"flex",gap:6}}>
@@ -921,18 +951,19 @@ function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onSMS,onTr
         </div>
       </div>
 
-      {/* ── ZONE LIVREUR ── */}
-      <div style={{background:"var(--orange-bg,#FEF3E2)",borderRadius:12,padding:"9px 10px",marginBottom:actionnable?10:0}}>
+      <div style={{background:"var(--orange-bg,#FEF3E2)",borderRadius:12,padding:"9px 10px",marginBottom:!isPatron?10:0}}>
         <div style={{fontSize:9,fontWeight:800,color:"#B45309",letterSpacing:".06em",marginBottom:7,textTransform:"uppercase"}}>🛵 Livreur</div>
         {!o.transferred
-          ? <button onClick={onTransfer} style={{width:"100%",padding:"9px 6px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#F59E0B,#D97706)",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(217,119,6,0.35)"}}>📤 Envoyer la commande au livreur</button>
+          ? <button onClick={onTransfer} style={{width:"100%",padding:"10px 6px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#F59E0B,#D97706)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(217,119,6,0.35)"}}>📤 Envoyer la commande au livreur</button>
           : <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#B45309",fontWeight:600,justifyContent:"center",padding:"4px 0"}}>✓ Commande déjà chez le livreur</div>}
       </div>
 
-      {actionnable&&<div style={{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid var(--border,#F2F4F8)"}}>
-        <button onClick={onLivrer} style={{flex:1,padding:11,borderRadius:10,border:"none",cursor:"pointer",background:"#E3F7EE",color:"#1E8E54",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>✓ Livré</button>
-        <button onClick={onMotif} style={{flex:1,padding:11,borderRadius:10,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>✗ Problème</button>
+      {/* ── CONFIRMATION : réservée à l'équipe (pas au Patron) ── */}
+      {!isPatron&&<div style={{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid var(--border,#F2F4F8)"}}>
+        <button onClick={onLivrer} style={{flex:1.4,padding:12,borderRadius:10,border:"none",cursor:"pointer",background:"#10B981",color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>✓ Livré</button>
+        <button onClick={onMotif} style={{flex:1,padding:12,borderRadius:10,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>✗ Problème</button>
       </div>}
+      </>}
     </div>
   );
 }
@@ -953,6 +984,10 @@ function LivreurCard({o,i,onUpdate,onCall}){
       <div style={{background:"#F7F8FB",borderRadius:12,padding:14,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><span style={{fontSize:16}}>📍</span><span style={{fontSize:14,fontWeight:600}}>{o.adresse||o.commune}</span></div>
         <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16}}>📞</span><span style={{fontSize:14,color:"#5B6B8C"}}>{o.phone}</span></div>
+      </div>
+      <div style={{background:"#E3F7EE",borderRadius:12,padding:"12px 14px",marginBottom:14,textAlign:"center"}}>
+        <div style={{fontSize:11,color:"#1E8E54",marginBottom:2}}>Montant à encaisser</div>
+        <div style={{fontSize:26,fontWeight:800,color:"#10B981"}}>{fmt(o.prix)} F</div>
       </div>
       <div style={{display:"flex",gap:8,marginBottom:14}}>
         <button onClick={()=>onCall(o)} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#E8F1FE",color:"#2563EB",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>📞 Appeler</button>

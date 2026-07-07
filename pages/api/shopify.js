@@ -35,7 +35,10 @@ export default async function handler(req, res) {
   const supabase = getSupabase();
   const { date } = req.query;
   const filterDate = date || new Date().toISOString().split("T")[0];
-  const start = new Date(filterDate); start.setHours(0,0,0,0);
+  // On recule de 36h avant la date demandée pour couvrir tous les décalages de fuseau horaire
+  // (Shopify enregistre created_at dans le fuseau de la boutique, qui peut être différent d'UTC).
+  // Le tri par date exacte se fait ensuite côté client via o.date === viewDate.
+  const start = new Date(filterDate); start.setHours(0,0,0,0); start.setTime(start.getTime() - 36*3600*1000);
 
   try {
     let boutiques = [];
