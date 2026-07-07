@@ -23,6 +23,13 @@ export default async function handler(req, res) {
       await supabase.from("depenses").delete().eq("id", depense.id);
       return res.status(200).json({ success:true });
     }
+    // Réinitialisation complète des dépenses (Patron uniquement)
+    if (action === "reset_all") {
+      if (req.body.requesterRole !== "patron") return res.status(403).json({ error:"Réservé au Patron" });
+      const { error } = await supabase.from("depenses").delete().gte("id", 0);
+      if (error) return res.status(500).json({ error:error.message });
+      return res.status(200).json({ success:true });
+    }
   }
   return res.status(405).json({ error:"Method not allowed" });
 }

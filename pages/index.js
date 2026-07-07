@@ -67,6 +67,7 @@ function AppInner() {
 
   const [tab, setTab] = useState("commandes");
   const [orders, setOrders] = useState([]);
+  const [clientHisto, setClientHisto] = useState({});
   const [produits, setProduits] = useState([]);
   const [depenses, setDepenses] = useState([]);
   const [wishlist, setWishlist] = useState([]);
@@ -177,6 +178,14 @@ function AppInner() {
       if(!shop.orders){ setRefreshing(false); return; }
       const savedMap = {};
       (saved||[]).forEach(o=>{ savedMap[o.shopify_id]=o; });
+      // Historique par client (téléphone) : permet d'afficher "2ᵉ commande" et le sort de la précédente
+      const histo = {};
+      (saved||[]).forEach(o=>{
+        const p=(o.phone||"").replace(/\D/g,""); if(!p) return;
+        if(!histo[p]) histo[p]=[];
+        histo[p].push({id:o.shopify_id, statut:o.statut||"en_attente", date:o.date||"", produit:o.produit||""});
+      });
+      setClientHisto(histo);
       const fromSaved = (o, statutForce) => ({
         id:o.numero||o.shopify_id, shopifyId:o.shopify_id, numero:o.numero, client:o.client, phone:o.phone||"",
         produit:o.produit, produitId:o.produit_id||"", quantite:o.quantite||1, prix:o.prix||0,
@@ -318,19 +327,29 @@ function AppInner() {
     const lp = (settings.livreur_phone||"").replace(/\D/g,"");
     updateOrder(o,{transferred:true});
     const msg=`🛵 Nouvelle livraison Yah-ni\n\n👤 ${o.client}\n📞 ${o.phone}\n📍 ${o.adresse||o.commune}\n📦 ${o.produit}\n💰 À encaisser : ${fmt(o.prix)} F${o.boutiqueNom?`\n🏪 ${o.boutiqueNom}`:""}\n\nMerci ✅`;
-    if(lp){
-      if(canal==="sms") window.open(`sms:+${lp}?body=${encodeURIComponent(msg)}`,"_blank");
-      else window.open(`https://wa.me/${lp}?text=${encodeURIComponent(msg)}`,"_blank");
-    } else {
-      toast("⚠️ Ajoutez le numéro du livreur dans Paramètres","error");
+    if(canal!=="app"){
+      if(lp){
+        if(canal==="sms") window.open(`sms:+${lp}?body=${encodeURIComponent(msg)}`,"_blank");
+        else window.open(`https://wa.me/${lp}?text=${encodeURIComponent(msg)}`,"_blank");
+      } else {
+        toast("⚠️ Ajoutez le numéro du livreur dans Paramètres","error");
+      }
     }
     setModal(null);
-    toast(`📤 Transféré au livreur par ${canal==="sms"?"SMS":"WhatsApp"}`);
+    toast(canal==="app"?"📲 Envoyé sur la page du livreur":`📤 Transféré au livreur par ${canal==="sms"?"SMS":"WhatsApp"}`);
   }
   function livreurUpdate(o, statut){
     const map={en_route:"en_attente",arrive:"en_attente",livre:"livree"};
     updateOrder(o,{livreurStatut:statut, ...(statut==="livre"?{statut:"livree",statutPar:currentRoleObj?.label||role,statutHeure:nowHM()}:{})});
-    toast(statut==="livre"?"✅ Marqué livré":statut==="en_route"?"🚗 En route":"📍 Arrivé");
+    // "En route" → ouvre un SMS pré-rempli pour prévenir le client (le livreur peut ajuster l'heure avant d'envoyer)
+    if(statut==="en_route"){
+      const p=(o.phone||"").replace(/\D/g,"");
+      if(p){
+        const msgClient=`Bonjour ${o.client}, votre livreur Yah-ni Store est en route pour vous livrer votre colis (${o.produit}). Montant à prévoir : ${fmt(o.prix)} F. Arrivée estimée : dans 30 à 45 min. Merci !`;
+        window.open(`sms:+${p}?body=${encodeURIComponent(msgClient)}`,"_blank");
+      }
+    }
+    toast(statut==="livre"?"✅ Marqué livré":statut==="en_route"?"🚗 En route — SMS client prêt à envoyer":"📍 Arrivé");
   }
 
   async function addOrderManual(){
@@ -525,7 +544,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                         <span style={{fontWeight:700,fontSize:14,color:c}}>{t}</span>
                         <span style={{marginLeft:"auto",background:c,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{items.length}</span>
                       </div>
-                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
                     </div>
                   ))}
                 </div>
@@ -569,7 +588,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {tab==="reportees" && can('reportees') && (
             <div className="fadeIn">
               <div style={{background:"#FBF4E6",border:"1px solid #F0DFB8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#8A6D2F"}}>⏰ Ces commandes réapparaissent automatiquement le jour choisi</div>
-              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
             </div>
           )}
         </div>
@@ -659,6 +678,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
             <span style={{fontSize:24}}>💬</span> <span>Par WhatsApp</span>
           </button>
         </div>
+        <button onClick={()=>doTransfer(modal.order,"app")} className="btn" style={{width:"100%",marginTop:10,padding:"13px",background:"#F3E8FF",color:"#7C3AED"}}>📲 Envoyer sur sa page seulement (sans message)</button>
+        <p style={{fontSize:11,color:"#9AA8C4",textAlign:"center",marginTop:8}}>Dans tous les cas, la commande apparaît sur la page du livreur avec ses boutons Livré / Problème.</p>
         <button onClick={()=>setModal(null)} className="btn btn-outline" style={{width:"100%",marginTop:10}}>Annuler</button>
       </Sheet>}
 
@@ -668,7 +689,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {showAddDep&&<AddDepSheet newDep={newDep} setNewDep={setNewDep} onClose={()=>setShowAddDep(false)} onAdd={addDepense}/>}
       {showAddWish&&<AddWishSheet newWish={newWish} setNewWish={setNewWish} onClose={()=>setShowAddWish(false)} onAdd={addWish}/>}
       {showAddBoutique&&<AddBoutiqueSheet newBoutique={newBoutique} setNewBoutique={setNewBoutique} onClose={()=>setShowAddBoutique(false)} onAdd={addBoutique}/>}
-      {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron} ROLES={ROLES} reloadRoles={()=>fetch("/api/roles").then(r=>r.json()).then(list=>{const map={};(list||[]).forEach(r0=>{map[r0.slug]=r0;});setROLES(map);})}/>}
+      {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron} ROLES={ROLES} reloadRoles={()=>fetch("/api/roles").then(r=>r.json()).then(list=>{const map={};(list||[]).forEach(r0=>{map[r0.slug]=r0;});setROLES(map);})} onResetDone={()=>{loadAll();loadOrders(viewDate);}}/>}
     </div>
   );
 }
@@ -877,12 +898,17 @@ function initiales(nom){
   return ((parts[0]?.[0]||"")+(parts[1]?.[0]||parts[0]?.[1]||"")).toUpperCase()||"?";
 }
 
-function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onSMS,onTransfer,viewDate}){
+function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS,onTransfer,viewDate}){
   const isDue = o.statut==="reportee" && o.reportDate===viewDate; // reportée arrivée à échéance → ré-actionnable
   const isLivree=o.statut==="livree",isBad=o.statut==="non_livree",isRep=o.statut==="reportee" && !isDue;
   const actionnable = o.statut==="en_attente" || isDue;
   const c=o.contacted||[], bc=badgeColor(o.commune);
   const borderColor = isLivree?"#10B981":isBad?"#EF4444":isRep?"#F59E0B":"#6366F1";
+  // Historique client : commandes précédentes enregistrées (même téléphone, autre commande)
+  const prevOrders = (hist||[]).filter(e=>e.id!==o.shopifyId).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const nbPrev = prevOrders.length;
+  const lastPrev = prevOrders[0];
+  const lastPrevLabel = lastPrev ? (lastPrev.statut==="livree"?"précédente livrée ✓":lastPrev.statut==="non_livree"?"précédente NON livrée ✗":"précédente en cours") : "";
   return (
     <div className="card order-card card-hover" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${borderColor}`}}>
 
@@ -902,8 +928,9 @@ function OrderCard({o,i,isPatron,seePrix,onLivrer,onMotif,onWA,onCall,onSMS,onTr
         </div>
       </div>
 
-      {/* ── BADGES : boutique, manuel, témoins de contact ── */}
+      {/* ── BADGES : boutique, manuel, récidiviste, témoins de contact ── */}
       <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+        {nbPrev>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:700}}>🔁 {nbPrev+1}ᵉ commande · {lastPrevLabel}</span>}
         {o.boutiqueNom&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:(o.boutiqueCouleur||"#6366F1")+"22",color:o.boutiqueCouleur||"#4F46E5",fontWeight:700}}>🏪 {o.boutiqueNom}</span>}
         {o.isManual&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>✍️ Manuel</span>}
         {o.wasReported&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>↩️ Reporté</span>}
@@ -981,8 +1008,14 @@ function LivreurCard({o,i,onUpdate,onCall}){
         </div>
         {st==="livre"&&<span style={{fontSize:12,padding:"4px 10px",borderRadius:20,background:"#E3F7EE",color:"#1E8E54",fontWeight:700,height:"fit-content"}}>✓ Livré</span>}
       </div>
-      <div style={{background:"#F7F8FB",borderRadius:12,padding:14,marginBottom:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><span style={{fontSize:16}}>📍</span><span style={{fontSize:14,fontWeight:600}}>{o.adresse||o.commune}</span></div>
+      <div style={{background:"#E8F1FE",borderRadius:12,padding:14,marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:24,flexShrink:0}}>📍</span>
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:17,fontWeight:800,color:"#1D4ED8"}}>{displayCommune(o.commune)}</div>
+          {o.adresse&&o.adresse!==o.commune&&<div style={{fontSize:14,color:"#2563EB",fontWeight:500}}>{o.adresse}</div>}
+        </div>
+      </div>
+      <div style={{background:"#F7F8FB",borderRadius:12,padding:"10px 14px",marginBottom:10}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16}}>📞</span><span style={{fontSize:14,color:"#5B6B8C"}}>{o.phone}</span></div>
       </div>
       <div style={{background:"#E3F7EE",borderRadius:12,padding:"12px 14px",marginBottom:14,textAlign:"center"}}>
@@ -1508,7 +1541,7 @@ const PERM_LABELS = [
 ];
 const EMOJI_CHOICES = ["👤","👩‍💼","🧑‍💼","🛵","📦","💰","👨‍🔧","🧑‍🍳","📞","🛍️","🚚","🏪"];
 
-function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,isPatron,ROLES,reloadRoles}){
+function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,isPatron,ROLES,reloadRoles,onResetDone}){
   const [livreurPhone,setLivreurPhone]=useState(settings.livreur_phone||"");
   const [shopifyStore,setShopifyStore]=useState(settings.shopify_store||"");
   const [shopifyToken,setShopifyToken]=useState("");
@@ -1578,6 +1611,35 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
     if(d.error){ setTeamMsg("❌ "+d.error); return; }
     setTeamMsg(`🗑 Rôle supprimé`); reloadRoles();
   }
+  const [resetMsg,setResetMsg]=useState("");
+  function confirmDouble(label){
+    if(!window.confirm(label))return false;
+    const typed = window.prompt('⚠️ Dernière vérification : tapez RESET (en majuscules) pour confirmer');
+    if(typed!=="RESET"){ setResetMsg("Réinitialisation annulée."); return false; }
+    return true;
+  }
+  async function resetDepenses(){
+    if(!confirmDouble("Réinitialiser TOUTES les dépenses ? Elles seront définitivement supprimées."))return;
+    const r=await fetch("/api/depenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reset_all",requesterRole:"patron"})});
+    const d=await r.json();
+    setResetMsg(d.success?"✅ Dépenses réinitialisées.":"❌ "+(d.error||"Erreur"));
+    if(d.success&&onResetDone)onResetDone();
+  }
+  async function resetBilan(){
+    if(!confirmDouble("Réinitialiser le BILAN, les statuts et la page du livreur ?\n\n• Le bilan repart à zéro\n• Les statuts (livré/problème/reporté/transféré) sont effacés\n• La page du livreur est vidée\n• Les commandes ajoutées manuellement sont supprimées\n\n⚠️ La liste des commandes Shopify reste (elles reviennent en statut « en attente »)."))return;
+    const r=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reset_all",requesterRole:"patron"})});
+    const d=await r.json();
+    setResetMsg(d.success?"✅ Bilan, statuts et page livreur réinitialisés.":"❌ "+(d.error||"Erreur"));
+    if(d.success&&onResetDone)onResetDone();
+  }
+  async function resetTout(){
+    if(!confirmDouble("TOUT RÉINITIALISER ? Dépenses + bilan + statuts + page livreur repartent à zéro. Seule la liste des commandes Shopify reste."))return;
+    const r1=await fetch("/api/depenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reset_all",requesterRole:"patron"})});
+    const r2=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reset_all",requesterRole:"patron"})});
+    const d1=await r1.json(), d2=await r2.json();
+    setResetMsg(d1.success&&d2.success?"✅ Tout a été réinitialisé. Nouveau départ !":"❌ "+(d1.error||d2.error||"Erreur"));
+    if(onResetDone)onResetDone();
+  }
   return (
     <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:300,overflowY:"auto",animation:"fadeIn .2s ease"}}>
       <div style={{maxWidth:680,margin:"0 auto",padding:20}}>
@@ -1641,6 +1703,16 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
           {pwdMsg&&<p style={{fontSize:12,color:pwdMsg.includes("✅")?"#1E8E54":"#C0392B",marginTop:8}}>{pwdMsg}</p>}
           <button onClick={changePwd} className="btn btn-outline" style={{marginTop:10}}>Changer le code</button>
         </Card>
+
+        {isPatron&&<Card title="♻️ Réinitialisation" badge="Zone sensible">
+          <p style={{fontSize:12,color:"#5B6B8C",marginBottom:12,lineHeight:1.5}}>Repartir à zéro à tout moment. Chaque action demande une double confirmation (il faudra taper RESET). La liste des commandes Shopify n'est jamais supprimée.</p>
+          {resetMsg&&<p style={{fontSize:12,color:resetMsg.includes("❌")?"#C0392B":"#1E8E54",marginBottom:12,fontWeight:600}}>{resetMsg}</p>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <button onClick={resetDepenses} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #F5C2C2",background:"#fff",color:"#C0392B",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>📉 Réinitialiser les dépenses</button>
+            <button onClick={resetBilan} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #F5C2C2",background:"#fff",color:"#C0392B",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>📊 Réinitialiser bilan + statuts + page livreur</button>
+            <button onClick={resetTout} style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"#E5484D",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🗑 TOUT réinitialiser (nouveau départ)</button>
+          </div>
+        </Card>}
 
         <button onClick={save} className="btn btn-gold" style={{width:"100%",padding:14,fontSize:15,marginTop:4}}>{saved?"✅ Enregistré !":"💾 Enregistrer"}</button>
       </div>
