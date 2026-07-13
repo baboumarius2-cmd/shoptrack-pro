@@ -1,5 +1,78 @@
-import { useState, useEffect, useCallback, Component } from "react";
+import { useState, useEffect, useCallback, useRef, Component } from "react";
 import { COMMUNES, MOTIFS, CAT_DEP, TODAY, getZone, badgeColor, displayCommune, catDep, fmt, Spin, Sheet, Stat } from "../lib/ui.jsx";
+
+function urlBase64ToUint8Array(base64String){
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = typeof window!=="undefined" ? window.atob(base64) : "";
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+/* Activation des notifications push — utilisé en Card (Paramètres) et en bandeau (page livreur) */
+function NotifSetup({role, isLivreur, banner}){
+  const [on,setOn]=useState(false);
+  const [checking,setChecking]=useState(true);
+  const [msg,setMsg]=useState("");
+  useEffect(()=>{ (async()=>{
+    try{
+      if(typeof Notification==="undefined"||!("serviceWorker" in navigator)){ setChecking(false); return; }
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      setOn(!!sub && Notification.permission==="granted");
+    }catch(e){}
+    setChecking(false);
+  })(); },[]);
+  async function enable(){
+    try{
+      setMsg("");
+      if(!("serviceWorker" in navigator)||!("PushManager" in window)||typeof Notification==="undefined"){ setMsg("❌ Non supporté par ce navigateur. Utilise l'app installée (APK) ou Chrome."); return; }
+      const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if(!pub){ setMsg("❌ Clé manquante : ajoute NEXT_PUBLIC_VAPID_PUBLIC_KEY dans Vercel puis redéploie."); return; }
+      const perm = await Notification.requestPermission();
+      if(perm!=="granted"){ setMsg("❌ Permission refusée. Autorise les notifications pour Yah-ni dans les réglages du téléphone."); return; }
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlBase64ToUint8Array(pub) });
+      const r = await fetch("/api/push-subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"subscribe",role,notifType:isLivreur?"livraisons":"commandes",subscription:sub.toJSON()})});
+      const d = await r.json();
+      if(d.success){ setOn(true); setMsg(isLivreur?"✅ Activé ! Tu seras prévenu dès qu'une commande arrive sur ta page.":"✅ Activé ! Cet appareil sera prévenu à chaque nouvelle commande."); }
+      else setMsg("❌ "+(d.error||"Erreur"));
+    }catch(e){ setMsg("❌ "+e.message); }
+  }
+  async function disable(){
+    try{
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if(sub){ await fetch("/api/push-subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"unsubscribe",endpoint:sub.endpoint})}); await sub.unsubscribe(); }
+      setOn(false); setMsg("🔕 Notifications désactivées sur cet appareil.");
+    }catch(e){ setMsg("❌ "+e.message); }
+  }
+  if(banner){
+    if(checking||on) return null;
+    return (
+      <div className="card" style={{padding:"12px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",borderLeft:"3px solid #4F46E5"}}>
+        <span style={{fontSize:20}}>🔔</span>
+        <div style={{flex:1,minWidth:150,fontSize:12,color:"var(--text-soft)"}}>Active les notifications pour être prévenu dès qu'une commande arrive, même app fermée.</div>
+        <button onClick={enable} className="btn btn-gold" style={{padding:"9px 14px",fontSize:12}}>Activer</button>
+        {msg&&<div style={{width:"100%",fontSize:11,color:msg.includes("❌")?"#C0392B":"#1E8E54",fontWeight:600}}>{msg}</div>}
+      </div>
+    );
+  }
+  return (
+    <Card title="🔔 Notifications" badge={on?"Activées ✅":undefined}>
+      <p style={{fontSize:12,color:"#5B6B8C",marginBottom:12,lineHeight:1.5}}>
+        {isLivreur?"Sois prévenu dès qu'une commande arrive sur ta page, même quand l'app est fermée.":"Sois prévenu(e) à chaque nouvelle commande Shopify, même quand l'app est fermée. À activer sur chaque appareil qui doit recevoir les alertes."}
+      </p>
+      {msg&&<p style={{fontSize:12,color:msg.includes("❌")?"#C0392B":"#1E8E54",marginBottom:12,fontWeight:600}}>{msg}</p>}
+      {!on
+        ? <button onClick={enable} className="btn btn-gold" style={{width:"100%"}}>🔔 Activer les notifications sur cet appareil</button>
+        : <button onClick={disable} className="btn btn-outline" style={{width:"100%"}}>🔕 Désactiver sur cet appareil</button>}
+    </Card>
+  );
+}
 
 function shadeColor(hex, percent){
   const h = (hex||"#8B5CF6").replace("#","");
@@ -132,6 +205,34 @@ function AppInner() {
     const allowed = isLivreur ? ["livraisons","mes_depenses"].includes(tab) : (MODULE_DEFS.some(m=>m.id===tab && can(m.perm)) || (tab==="livraisons_histo" && can("commandes")));
     if(!allowed) setTab(defaultTabFor(currentRoleObj));
   },[screen, rolesLoaded, role, currentRoleObj]);
+
+  // Service worker des notifications (silencieux, ne bloque rien)
+  useEffect(()=>{
+    if(typeof navigator!=="undefined" && "serviceWorker" in navigator){
+      navigator.serviceWorker.register("/sw.js").catch(()=>{});
+    }
+  },[]);
+
+  // Alerte in-app de secours : nouvelles commandes (Patron/Assistante) ou nouvelles livraisons (Livreur)
+  const seenIdsRef = useRef(null);
+  useEffect(()=>{
+    if(screen!=="app") return;
+    const principal = livreurs.find(l=>l.principal);
+    const relevant = isLivreur
+      ? orders.filter(o=>o.transferred && o.date===TODAY && (!o.livreurId || String(o.livreurId)===String(principal?.id||"")))
+      : orders.filter(o=>o.date===TODAY && !o.isManual);
+    const ids = new Set(relevant.map(o=>o.shopifyId));
+    if(seenIdsRef.current===null){ if(relevant.length>0 || !refreshing) seenIdsRef.current=ids; return; }
+    const news = [...ids].filter(id=>!seenIdsRef.current.has(id));
+    if(news.length>0){
+      const label = isLivreur ? `🛵 ${news.length===1?"Nouvelle livraison reçue !":news.length+" nouvelles livraisons reçues !"}` : `🛒 ${news.length===1?"Nouvelle commande reçue !":news.length+" nouvelles commandes reçues !"}`;
+      toast(label);
+      if(typeof Notification!=="undefined" && Notification.permission==="granted"){
+        try{ new Notification("Yah-ni Store", { body: label, icon:"/icons/icon-192.png", tag:"inapp-new" }); }catch(e){}
+      }
+    }
+    seenIdsRef.current = ids;
+  },[orders, screen, isLivreur, livreurs]);
 
   function logout(){
     lsRemove("yahni_role");
@@ -574,6 +675,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {/* ═══ LIVRAISONS (livreur) ═══ */}
           {tab==="livraisons" && isLivreur && (
             <div className="fadeIn">
+              <NotifSetup role={role} isLivreur banner/>
               <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:22,marginTop:16}}>
                 <Stat label="À livrer" value={livraisons.filter(o=>o.livreurStatut!=="livre").length} icon="📦" color="#F59E0B"/>
@@ -1841,6 +1943,8 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
           {pwdMsg&&<p style={{fontSize:12,color:pwdMsg.includes("✅")?"#1E8E54":"#C0392B",marginTop:8}}>{pwdMsg}</p>}
           <button onClick={changePwd} className="btn btn-outline" style={{marginTop:10}}>Changer le code</button>
         </Card>
+
+        <NotifSetup role={role} isLivreur={!!ROLES[role]?.permissions?.livreur_mode}/>
 
         {isPatron&&<Card title="♻️ Réinitialisation" badge="Zone sensible">
           <p style={{fontSize:12,color:"#5B6B8C",marginBottom:12,lineHeight:1.5}}>Repartir à zéro à tout moment. Chaque action demande une double confirmation (il faudra taper RESET). La liste des commandes Shopify n'est jamais supprimée.</p>

@@ -1,4 +1,5 @@
 import { getSupabase } from "../../lib/supabase";
+import { sendPushToType } from "../../lib/push";
 
 export default async function handler(req, res) {
   const supabase = getSupabase();
@@ -13,8 +14,28 @@ export default async function handler(req, res) {
     const { action } = req.body;
     if (action === "update") {
       const { shopifyId, updates } = req.body;
+      // Détection d'un NOUVEAU transfert (pour notifier le livreur principal)
+      let nouveauTransfert = false;
+      if (updates.transferred === true) {
+        const { data: prev } = await supabase.from("orders").select("transferred").eq("shopify_id", shopifyId).maybeSingle();
+        nouveauTransfert = !prev?.transferred;
+      }
       const { error } = await supabase.from("orders").upsert({ shopify_id:shopifyId, ...updates }, { onConflict:"shopify_id" });
       if (error) return res.status(500).json({ error:error.message });
+      // Push au livreur principal, uniquement si la commande lui est destinée
+      if (nouveauTransfert) {
+        try {
+          const { data: principal } = await supabase.from("livreurs").select("id").eq("principal", true).eq("actif", true).maybeSingle();
+          const pourPrincipal = !updates.livreur_id || (principal && String(updates.livreur_id) === String(principal.id));
+          if (pourPrincipal) {
+            await sendPushToType(supabase, "livraisons", {
+              title: "🛵 Nouvelle livraison !",
+              body: `${updates.client || "Commande"}${updates.commune ? " · " + updates.commune : ""}${updates.prix ? " · " + Math.round(updates.prix).toLocaleString("fr-FR") + " F" : ""}`,
+              tag: "nouvelle-livraison", url: "/",
+            });
+          }
+        } catch (e) { /* le push ne doit jamais bloquer la sauvegarde */ }
+      }
       return res.status(200).json({ success:true });
     }
     if (action === "add_manual") {
