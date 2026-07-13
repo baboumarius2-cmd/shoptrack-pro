@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     if (action === "add") {
       const { error } = await supabase.from("depenses").insert({
         libelle:depense.libelle, montant:depense.montant, categorie:depense.categorie,
-        date:depense.date, note:depense.note||"",
+        date:depense.date, note:depense.note||"", auteur:depense.auteur||"",
       });
       if (error) return res.status(500).json({ error:error.message });
       return res.status(200).json({ success:true });

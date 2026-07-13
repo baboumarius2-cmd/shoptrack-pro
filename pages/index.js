@@ -68,6 +68,8 @@ function AppInner() {
   const [tab, setTab] = useState("commandes");
   const [orders, setOrders] = useState([]);
   const [clientHisto, setClientHisto] = useState({});
+  const [livreurs, setLivreurs] = useState([]);
+  const [livreurFilter, setLivreurFilter] = useState("tous");
   const [produits, setProduits] = useState([]);
   const [depenses, setDepenses] = useState([]);
   const [wishlist, setWishlist] = useState([]);
@@ -127,7 +129,7 @@ function AppInner() {
   useEffect(()=>{
     if(screen!=="app" || !rolesLoaded) return;
     if(!currentRoleObj){ logout(); return; }
-    const allowed = isLivreur ? tab==="livraisons" : MODULE_DEFS.some(m=>m.id===tab && can(m.perm));
+    const allowed = isLivreur ? ["livraisons","mes_depenses"].includes(tab) : (MODULE_DEFS.some(m=>m.id===tab && can(m.perm)) || (tab==="livraisons_histo" && can("commandes")));
     if(!allowed) setTab(defaultTabFor(currentRoleObj));
   },[screen, rolesLoaded, role, currentRoleObj]);
 
@@ -195,10 +197,11 @@ function AppInner() {
         note:o.note||"", motif:o.motif||"", reportDate:o.report_date||"", wasReported:o.was_reported||false, isManual:!!o.is_manual,
         boutiqueNom:o.boutique_nom||"", boutiqueId:o.boutique_id||"",
         statutPar:o.statut_par||"", statutHeure:o.statut_heure||"",
+        livreurId:o.livreur_id||"", livreurNom:o.livreur_nom||"", transfertHeure:o.transfert_heure||"",
       });
       const merged = shop.orders.map(o=>{
         const s = savedMap[o.shopifyId];
-        return s ? {...o, statut:s.statut||"en_attente", motif:s.motif||"", reportDate:s.report_date||"", contacted:s.contacted||[], transferred:s.transferred||false, livreurStatut:s.livreur_statut||"en_attente", wasReported:s.was_reported||false, statutPar:s.statut_par||"", statutHeure:s.statut_heure||""} : o;
+        return s ? {...o, statut:s.statut||"en_attente", motif:s.motif||"", reportDate:s.report_date||"", contacted:s.contacted||[], transferred:s.transferred||false, livreurStatut:s.livreur_statut||"en_attente", wasReported:s.was_reported||false, statutPar:s.statut_par||"", statutHeure:s.statut_heure||"", livreurId:s.livreur_id||"", livreurNom:s.livreur_nom||"", transfertHeure:s.transfert_heure||""} : o;
       });
       const mergedIds = new Set(merged.map(m=>m.shopifyId));
       const manuals = (saved||[]).filter(o=>o.is_manual).map(o=>fromSaved(o));
@@ -216,7 +219,7 @@ function AppInner() {
   const loadAll = useCallback(async()=>{
     setLoading(true);
     try{
-      const [s,p,d,w,b,cl] = await Promise.all([ fetch("/api/settings"), fetch("/api/produits"), fetch("/api/depenses"), fetch("/api/wishlist"), fetch("/api/boutiques"), fetch("/api/clients") ]);
+      const [s,p,d,w,b,cl,lv] = await Promise.all([ fetch("/api/settings"), fetch("/api/produits"), fetch("/api/depenses"), fetch("/api/wishlist"), fetch("/api/boutiques"), fetch("/api/clients"), fetch("/api/livreurs") ]);
       const sj = await s.json(); setSettings(sj||{});
       if(sj?.msg_template) setMsgTemplate(sj.msg_template);
       if(sj?.theme) setTheme(sj.theme);
@@ -225,6 +228,7 @@ function AppInner() {
       setWishlist(await w.json()||[]);
       setBoutiques(await b.json()||[]);
       setClients(await cl.json()||[]);
+      const lvj = await lv.json(); setLivreurs(Array.isArray(lvj)?lvj:[]);
     }catch(e){ console.error(e); }
     setLoading(false);
   },[]);
@@ -249,7 +253,18 @@ function AppInner() {
   const livrees = todayOrders.filter(o=>o.statut==="livree");
   const enAttente = todayOrders.filter(o=>o.statut==="en_attente");
   // Livreur sees transferred orders
-  const livraisons = orders.filter(o=>o.transferred && o.date===TODAY);
+  const livreurPrincipal = livreurs.find(l=>l.principal);
+  // Livraisons du livreur principal : commandes transférées à lui, pour la date consultée.
+  // Une commande avec un livreur nommé différent du principal est TOUJOURS exclue,
+  // même si l'identifiant n'a pas pu être enregistré (double sécurité).
+  const estAuPrincipal = (o)=>{
+    if(o.livreurId) return String(o.livreurId)===String(livreurPrincipal?.id||"");
+    if(o.livreurNom && livreurPrincipal && o.livreurNom!==livreurPrincipal.nom) return false;
+    return true; // anciennes commandes sans livreur précisé = principal
+  };
+  const livraisons = orders.filter(o=>o.transferred && o.date===viewDate && estAuPrincipal(o));
+  // Historique de tous les transferts (tous livreurs) pour l'onglet Livraisons
+  const transferts = orders.filter(o=>o.transferred && o.date===viewDate);
 
   /* ─ ORDER ACTIONS ─ */
   async function updateOrder(o, updates){
@@ -266,6 +281,9 @@ function AppInner() {
       was_reported:updates.wasReported!==undefined?updates.wasReported:o.wasReported,
       statut_par:updates.statutPar!==undefined?updates.statutPar:(o.statutPar||null),
       statut_heure:updates.statutHeure!==undefined?updates.statutHeure:(o.statutHeure||null),
+      livreur_id:updates.livreurId!==undefined?updates.livreurId:(o.livreurId||null),
+      livreur_nom:updates.livreurNom!==undefined?updates.livreurNom:(o.livreurNom||null),
+      transfert_heure:updates.transfertHeure!==undefined?updates.transfertHeure:(o.transfertHeure||null),
     };
     await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",shopifyId:o.shopifyId,updates:body})});
   }
@@ -320,23 +338,23 @@ function AppInner() {
     toast("✉️ SMS ouvert");
   }
   function transfer(o){
-    // Ouvre le choix SMS / WhatsApp
-    setModal({type:"transfer", order:o});
+    // Étape 1 : choix du livreur, puis étape 2 : choix du canal
+    setModal({type:"transfer", order:o, livreur:null});
   }
-  function doTransfer(o, canal){
-    const lp = (settings.livreur_phone||"").replace(/\D/g,"");
-    updateOrder(o,{transferred:true});
+  function doTransfer(o, livreur, canal){
+    const lp = (livreur?.phone||"").replace(/\D/g,"");
+    updateOrder(o,{transferred:true, livreurId:String(livreur?.id||""), livreurNom:livreur?.nom||"", transfertHeure:nowHM()});
     const msg=`🛵 Nouvelle livraison Yah-ni\n\n👤 ${o.client}\n📞 ${o.phone}\n📍 ${o.adresse||o.commune}\n📦 ${o.produit}\n💰 À encaisser : ${fmt(o.prix)} F${o.boutiqueNom?`\n🏪 ${o.boutiqueNom}`:""}\n\nMerci ✅`;
     if(canal!=="app"){
       if(lp){
         if(canal==="sms") window.open(`sms:+${lp}?body=${encodeURIComponent(msg)}`,"_blank");
         else window.open(`https://wa.me/${lp}?text=${encodeURIComponent(msg)}`,"_blank");
       } else {
-        toast("⚠️ Ajoutez le numéro du livreur dans Paramètres","error");
+        toast("⚠️ Ce livreur n'a pas de numéro enregistré (Paramètres → Livreurs)","error");
       }
     }
     setModal(null);
-    toast(canal==="app"?"📲 Envoyé sur la page du livreur":`📤 Transféré au livreur par ${canal==="sms"?"SMS":"WhatsApp"}`);
+    toast(canal==="app"?`📲 Envoyé sur la page de ${livreur?.nom||"livreur"}`:`📤 Envoyé à ${livreur?.nom||"livreur"} par ${canal==="sms"?"SMS":"WhatsApp"}`);
   }
   function livreurUpdate(o, statut){
     const map={en_route:"en_attente",arrive:"en_attente",livre:"livree"};
@@ -389,7 +407,7 @@ function AppInner() {
 
   async function addDepense(){
     if(!newDep.libelle||!newDep.montant)return;
-    await fetch("/api/depenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",depense:{...newDep,montant:+newDep.montant}})});
+    await fetch("/api/depenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",depense:{...newDep,montant:+newDep.montant,auteur:currentRoleObj?.label||role}})});
     setNewDep({libelle:"",montant:"",categorie:"emballage",date:TODAY,note:""}); setShowAddDep(false); loadAll(); toast("📉 Dépense enregistrée");
   }
   async function delDepense(id){ await fetch("/api/depenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",depense:{id}})}); setDepenses(p=>p.filter(d=>d.id!==id)); }
@@ -428,8 +446,8 @@ function AppInner() {
 
   /* ═══ NAV ═══ */
   const navItems = isLivreur
-    ? [{id:"livraisons",icon:"🛵",label:"Mes livraisons"}]
-    : MODULE_DEFS.filter(m=>can(m.perm));
+    ? [{id:"livraisons",icon:"🛵",label:"Mes livraisons"},{id:"mes_depenses",icon:"📉",label:"Mes dépenses"}]
+    : [...MODULE_DEFS.filter(m=>can(m.perm)), ...(can("commandes")?[{id:"livraisons_histo",icon:"🛵",label:"Livraisons"}]:[])];
 
   const beneficeJour = livrees.reduce((s,o)=>s+(o.prix||0)-o.livraison,0);
   const depJour = depenses.filter(d=>d.date===TODAY).reduce((s,d)=>s+d.montant,0);
@@ -556,13 +574,80 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {/* ═══ LIVRAISONS (livreur) ═══ */}
           {tab==="livraisons" && isLivreur && (
             <div className="fadeIn">
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:22}}>
-                <Stat label="À livrer" value={livraisons.filter(o=>o.livreurStatut!=="livre").length} icon="📦" color="#E5B567"/>
-                <Stat label="Livrées" value={livraisons.filter(o=>o.livreurStatut==="livre").length} icon="✅" color="#2BB673"/>
+              <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:22,marginTop:16}}>
+                <Stat label="À livrer" value={livraisons.filter(o=>o.livreurStatut!=="livre").length} icon="📦" color="#F59E0B"/>
+                <Stat label="Livrées" value={livraisons.filter(o=>o.livreurStatut==="livre").length} icon="✅" color="#10B981"/>
                 <Stat label="Total" value={livraisons.length} icon="🛵" color="#3B82F6"/>
               </div>
-              {livraisons.length===0?<Empty icon="🛵" title="Aucune livraison" sub="Les commandes transférées apparaîtront ici"/>:
+              {livraisons.length===0?<Empty icon="🛵" title={viewDate===TODAY?"Aucune livraison aujourd'hui":"Aucune livraison ce jour-là"} sub="Les commandes transférées apparaîtront ici. Navigue avec le calendrier pour revoir tes anciennes livraisons."/>:
                 livraisons.map((o,i)=><LivreurCard key={o.shopifyId} o={o} i={i} onUpdate={livreurUpdate} onCall={callCli}/>)}
+            </div>
+          )}
+
+          {/* ═══ MES DÉPENSES (livreur) ═══ */}
+          {tab==="mes_depenses" && isLivreur && (
+            <div className="fadeIn">
+              <button onClick={()=>setShowAddDep(true)} style={{width:"100%",padding:16,borderRadius:14,border:"2px dashed #C7D2FE",background:"#EEF0FE",color:"#4F46E5",fontSize:15,fontWeight:700,cursor:"pointer",marginBottom:18,fontFamily:"inherit"}}>➕ Ajouter une dépense</button>
+              {(()=>{
+                const mines = depenses.filter(d=>d.auteur===(currentRoleObj?.label||role));
+                return mines.length===0?<Empty icon="📉" title="Aucune dépense" sub="Ajoute tes dépenses (carburant, réparations...) avec le bouton ci-dessus"/>:
+                  mines.map(d=>{const c=catDep(d.categorie);return(
+                    <div key={d.id} className="card fadeIn" style={{padding:"14px 16px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",gap:8,marginBottom:4,alignItems:"center"}}>
+                          <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:c.color+"18",color:c.color,fontWeight:600}}>{c.icon} {c.label}</span>
+                          <span style={{fontSize:11,color:"#9AA8C4"}}>{d.date}</span>
+                        </div>
+                        <div style={{fontWeight:600,fontSize:14}}>{d.libelle}</div>
+                        {d.note&&<div style={{fontSize:12,color:"#9AA8C4",marginTop:2}}>{d.note}</div>}
+                      </div>
+                      <div style={{fontSize:16,fontWeight:800,color:"#E5484D"}}>-{fmt(d.montant)} F</div>
+                    </div>
+                  );});
+              })()}
+            </div>
+          )}
+
+          {/* ═══ HISTORIQUE LIVRAISONS (Patron + Assistante) ═══ */}
+          {tab==="livraisons_histo" && !isLivreur && can('commandes') && (
+            <div className="fadeIn">
+              <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
+              <div style={{display:"flex",gap:8,margin:"16px 0",flexWrap:"wrap"}}>
+                <button onClick={()=>setLivreurFilter("tous")} style={{padding:"6px 14px",borderRadius:20,cursor:"pointer",background:livreurFilter==="tous"?"#4F46E5":"var(--card)",color:livreurFilter==="tous"?"#fff":"#5B6B8C",fontSize:12,fontWeight:600,fontFamily:"inherit",border:"1px solid var(--border,#E8ECF4)"}}>Tous les livreurs</button>
+                {livreurs.map(lv=>(
+                  <button key={lv.id} onClick={()=>setLivreurFilter(String(lv.id))} style={{padding:"6px 14px",borderRadius:20,cursor:"pointer",background:livreurFilter===String(lv.id)?"#4F46E5":"var(--card)",color:livreurFilter===String(lv.id)?"#fff":"#5B6B8C",fontSize:12,fontWeight:600,fontFamily:"inherit",border:"1px solid var(--border,#E8ECF4)"}}>🛵 {lv.nom}</button>
+                ))}
+              </div>
+              {(()=>{
+                const list = transferts.filter(o=>livreurFilter==="tous"||String(o.livreurId||livreurPrincipal?.id||"")===livreurFilter);
+                const livr = list.filter(o=>o.statut==="livree").length;
+                const prob = list.filter(o=>o.statut==="non_livree").length;
+                return <>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:18}}>
+                    <Stat label="Envoyées" value={list.length} icon="📤" color="#4F46E5"/>
+                    <Stat label="Livrées" value={livr} icon="✅" color="#10B981"/>
+                    <Stat label="Problèmes" value={prob} icon="⚠️" color="#EF4444"/>
+                  </div>
+                  {list.length===0?<Empty icon="📤" title="Aucun transfert ce jour-là" sub="Les commandes envoyées aux livreurs apparaîtront ici"/>:
+                    list.map((o,i)=>(
+                      <div key={o.shopifyId} className="card fadeIn" style={{padding:"13px 16px",marginBottom:10,borderLeft:`3px solid ${o.statut==="livree"?"#10B981":o.statut==="non_livree"?"#EF4444":"#F59E0B"}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <div style={{flex:1,minWidth:150}}>
+                            <div style={{fontWeight:700,fontSize:14}}>{o.client}</div>
+                            <div style={{fontSize:12,color:"#5B6B8C"}}>📦 {o.produit} · 📍 {displayCommune(o.commune)}{can("voir_montants")?` · ${fmt(o.prix)} F`:""}</div>
+                            <div style={{fontSize:11,color:"#B45309",marginTop:2,fontWeight:600}}>🛵 {o.livreurNom||livreurPrincipal?.nom||"Livreur"}{o.transfertHeure?` · envoyée à ${o.transfertHeure}`:""}</div>
+                          </div>
+                          <div>
+                            {o.statut==="livree"&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#10B981",color:"#fff",fontWeight:700}}>✓ Livrée{o.statutHeure?` ${o.statutHeure}`:""}</span>}
+                            {o.statut==="non_livree"&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#FDEAEA",color:"#C0392B",fontWeight:700}}>⚠️ {o.motif||"Problème"}</span>}
+                            {o.statut!=="livree"&&o.statut!=="non_livree"&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"var(--orange-bg,#FEF3E2)",color:"#B45309",fontWeight:700}}>🕐 En cours</span>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </>;
+              })()}
             </div>
           )}
 
@@ -664,22 +749,39 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       </Sheet>}
 
       {modal?.type==="transfer"&&<Sheet onClose={()=>setModal(null)} title="📤 Transférer au livreur">
-        <div style={{textAlign:"center",padding:"4px 0 18px"}}>
+        <div style={{textAlign:"center",padding:"4px 0 14px"}}>
           <p style={{fontWeight:600,fontSize:15}}>{modal.order.client}</p>
-          <p style={{color:"#5B6B8C",fontSize:13,marginTop:2}}>📍 {modal.order.adresse||modal.order.commune}</p>
-          {!settings.livreur_phone&&<p style={{color:"#E5484D",fontSize:12,marginTop:8}}>⚠️ Aucun numéro livreur configuré (Paramètres)</p>}
+          <p style={{color:"#5B6B8C",fontSize:13,marginTop:2}}>📍 {displayCommune(modal.order.commune)} · {modal.order.adresse||""}</p>
         </div>
-        <p style={{fontSize:13,color:"#5B6B8C",marginBottom:12,textAlign:"center"}}>Comment envoyer la commande au livreur ?</p>
-        <div style={{display:"flex",gap:10}}>
-          <button onClick={()=>doTransfer(modal.order,"sms")} className="btn" style={{flex:1,padding:"14px",background:"#E8F1FE",color:"#2563EB",flexDirection:"column",gap:4,height:"auto"}}>
-            <span style={{fontSize:24}}>📱</span> <span>Par SMS</span>
-          </button>
-          <button onClick={()=>doTransfer(modal.order,"whatsapp")} className="btn" style={{flex:1,padding:"14px",background:"#E3F7EE",color:"#1E8E54",flexDirection:"column",gap:4,height:"auto"}}>
-            <span style={{fontSize:24}}>💬</span> <span>Par WhatsApp</span>
-          </button>
-        </div>
-        <button onClick={()=>doTransfer(modal.order,"app")} className="btn" style={{width:"100%",marginTop:10,padding:"13px",background:"#F3E8FF",color:"#7C3AED"}}>📲 Envoyer sur sa page seulement (sans message)</button>
-        <p style={{fontSize:11,color:"#9AA8C4",textAlign:"center",marginTop:8}}>Dans tous les cas, la commande apparaît sur la page du livreur avec ses boutons Livré / Problème.</p>
+        {!modal.livreur ? <>
+          <p style={{fontSize:13,color:"#5B6B8C",marginBottom:12,textAlign:"center"}}>1/2 — Choisis le livreur :</p>
+          {livreurs.length===0&&<p style={{fontSize:12,color:"#E5484D",textAlign:"center",marginBottom:10}}>⚠️ Aucun livreur enregistré. Ajoute-les dans Paramètres → Livreurs.</p>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {livreurs.map(lv=>(
+              <button key={lv.id} onClick={()=>setModal(m=>({...m,livreur:lv}))} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:12,border:"1px solid var(--border,#E9EDF3)",background:"var(--card,#fff)",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                <span style={{fontSize:22}}>🛵</span>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{lv.nom}</div>
+                  <div style={{fontSize:12,color:"#9AA8C4"}}>{lv.ville}{lv.principal?" · 📲 a l'application":""}</div>
+                </div>
+                <span style={{color:"#9AA8C4"}}>→</span>
+              </button>
+            ))}
+          </div>
+        </> : <>
+          <p style={{fontSize:13,color:"#5B6B8C",marginBottom:12,textAlign:"center"}}>2/2 — Envoyer à <b>{modal.livreur.nom}</b> par :</p>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>doTransfer(modal.order,modal.livreur,"sms")} className="btn" style={{flex:1,padding:"14px",background:"#E8F1FE",color:"#2563EB",flexDirection:"column",gap:4,height:"auto"}}>
+              <span style={{fontSize:24}}>📱</span> <span>Par SMS</span>
+            </button>
+            <button onClick={()=>doTransfer(modal.order,modal.livreur,"whatsapp")} className="btn" style={{flex:1,padding:"14px",background:"#E3F7EE",color:"#1E8E54",flexDirection:"column",gap:4,height:"auto"}}>
+              <span style={{fontSize:24}}>💬</span> <span>Par WhatsApp</span>
+            </button>
+          </div>
+          {modal.livreur.principal&&<button onClick={()=>doTransfer(modal.order,modal.livreur,"app")} className="btn" style={{width:"100%",marginTop:10,padding:"13px",background:"#F3E8FF",color:"#7C3AED"}}>📲 Sur sa page seulement (sans message)</button>}
+          <p style={{fontSize:11,color:"#9AA8C4",textAlign:"center",marginTop:8}}>{modal.livreur.principal?"La commande apparaîtra aussi sur sa page dans l'app.":"Ce livreur n'a pas l'application : il reçoit uniquement le message."}</p>
+          <button onClick={()=>setModal(m=>({...m,livreur:null}))} className="btn btn-outline" style={{width:"100%",marginTop:10}}>← Changer de livreur</button>
+        </>}
         <button onClick={()=>setModal(null)} className="btn btn-outline" style={{width:"100%",marginTop:10}}>Annuler</button>
       </Sheet>}
 
@@ -689,7 +791,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {showAddDep&&<AddDepSheet newDep={newDep} setNewDep={setNewDep} onClose={()=>setShowAddDep(false)} onAdd={addDepense}/>}
       {showAddWish&&<AddWishSheet newWish={newWish} setNewWish={setNewWish} onClose={()=>setShowAddWish(false)} onAdd={addWish}/>}
       {showAddBoutique&&<AddBoutiqueSheet newBoutique={newBoutique} setNewBoutique={setNewBoutique} onClose={()=>setShowAddBoutique(false)} onAdd={addBoutique}/>}
-      {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron} ROLES={ROLES} reloadRoles={()=>fetch("/api/roles").then(r=>r.json()).then(list=>{const map={};(list||[]).forEach(r0=>{map[r0.slug]=r0;});setROLES(map);})} onResetDone={()=>{loadAll();loadOrders(viewDate);}}/>}
+      {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron} ROLES={ROLES} reloadRoles={()=>fetch("/api/roles").then(r=>r.json()).then(list=>{const map={};(list||[]).forEach(r0=>{map[r0.slug]=r0;});setROLES(map);})} onResetDone={()=>{loadAll();loadOrders(viewDate);}} livreurs={livreurs} reloadLivreurs={()=>fetch("/api/livreurs").then(r=>r.json()).then(l=>setLivreurs(Array.isArray(l)?l:[]))}/>}
     </div>
   );
 }
@@ -937,7 +1039,7 @@ function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS
         {c.includes("whatsapp")&&<span style={{fontSize:10,color:"#1E8E54",fontWeight:600}}>✓ WhatsApp envoyé</span>}
         {c.includes("sms")&&<span style={{fontSize:10,color:"#2563EB",fontWeight:600}}>✓ SMS envoyé</span>}
         {c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:600}}>✓ Appelé</span>}
-        {o.transferred&&<span style={{fontSize:10,color:"#B45309",fontWeight:600}}>🛵 Chez le livreur</span>}
+        {o.transferred&&<span style={{fontSize:10,color:"#B45309",fontWeight:600}}>🛵 Envoyée à {o.livreurNom||"livreur"}{o.transfertHeure?` à ${o.transfertHeure}`:""}</span>}
       </div>
 
       {/* ── PRODUIT ── */}
@@ -1024,6 +1126,7 @@ function LivreurCard({o,i,onUpdate,onCall}){
       </div>
       <div style={{display:"flex",gap:8,marginBottom:14}}>
         <button onClick={()=>onCall(o)} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#E8F1FE",color:"#2563EB",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>📞 Appeler</button>
+        <button onClick={()=>{const p=(o.phone||"").replace(/\D/g,""); if(p) window.open(`https://wa.me/${p}?text=${encodeURIComponent(`Bonjour ${o.client}, je suis votre livreur Yah-ni Store pour votre colis (${o.produit}).`)}`,"_blank");}} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#25D366",color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>💬 WhatsApp</button>
         <button onClick={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(o.adresse||o.commune)}`,"_blank")} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#F3E8FF",color:"#7C3AED",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>🗺️ Itinéraire</button>
       </div>
       <div style={{display:"flex",gap:6}}>
@@ -1143,9 +1246,10 @@ function DepensesTab({depenses,filter,setFilter,onAdd,onDel}){
       {filtered.length===0?<Empty icon="📉" title="Aucune dépense"/>:filtered.map(d=>{const c=catDep(d.categorie);return(
         <div key={d.id} className="card fadeIn" style={{padding:"14px 16px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{flex:1}}>
-            <div style={{display:"flex",gap:8,marginBottom:4,alignItems:"center"}}>
+            <div style={{display:"flex",gap:8,marginBottom:4,alignItems:"center",flexWrap:"wrap"}}>
               <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:c.color+"18",color:c.color,fontWeight:600}}>{c.icon} {c.label}</span>
               <span style={{fontSize:11,color:"#9AA8C4"}}>{d.date}</span>
+              {d.auteur&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>👤 par {d.auteur}</span>}
             </div>
             <div style={{fontWeight:600,fontSize:14}}>{d.libelle}</div>
             {d.note&&<div style={{fontSize:12,color:"#9AA8C4",marginTop:2}}>{d.note}</div>}
@@ -1541,7 +1645,7 @@ const PERM_LABELS = [
 ];
 const EMOJI_CHOICES = ["👤","👩‍💼","🧑‍💼","🛵","📦","💰","👨‍🔧","🧑‍🍳","📞","🛍️","🚚","🏪"];
 
-function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,isPatron,ROLES,reloadRoles,onResetDone}){
+function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,isPatron,ROLES,reloadRoles,onResetDone,livreurs,reloadLivreurs}){
   const [livreurPhone,setLivreurPhone]=useState(settings.livreur_phone||"");
   const [shopifyStore,setShopifyStore]=useState(settings.shopify_store||"");
   const [shopifyToken,setShopifyToken]=useState("");
@@ -1612,6 +1716,25 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
     setTeamMsg(`🗑 Rôle supprimé`); reloadRoles();
   }
   const [resetMsg,setResetMsg]=useState("");
+  const [lvForm,setLvForm]=useState(null); // null | {id?,nom,ville,phone,principal}
+  const [lvMsg,setLvMsg]=useState("");
+  async function saveLivreur(){
+    if(!lvForm?.nom?.trim()){ setLvMsg("❌ Le nom du livreur est requis"); return; }
+    const isEdit = !!lvForm.id;
+    const r=await fetch("/api/livreurs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(isEdit?{action:"update",requesterRole:"patron",id:lvForm.id,livreur:lvForm}:{action:"add",requesterRole:"patron",livreur:lvForm})});
+    const d=await r.json();
+    if(d.error){ setLvMsg("❌ "+d.error); return; }
+    setLvMsg(isEdit?`✅ ${lvForm.nom} mis à jour`:`✅ ${lvForm.nom} ajouté`);
+    setLvForm(null);
+    if(reloadLivreurs)reloadLivreurs();
+  }
+  async function deleteLivreur(lv){
+    if(!window.confirm(`Retirer le livreur "${lv.nom}" de la liste ?`))return;
+    const r=await fetch("/api/livreurs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",requesterRole:"patron",id:lv.id})});
+    const d=await r.json();
+    setLvMsg(d.success?`🗑 ${lv.nom} retiré`:"❌ "+(d.error||"Erreur"));
+    if(d.success&&reloadLivreurs)reloadLivreurs();
+  }
   function confirmDouble(label){
     if(!window.confirm(label))return false;
     const typed = window.prompt('⚠️ Dernière vérification : tapez RESET (en majuscules) pour confirmer');
@@ -1670,10 +1793,25 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
           <button onClick={openNewRole} style={{width:"100%",padding:12,borderRadius:12,border:"2px dashed #E0C8FF",background:"#F9F5FF",color:"#7C3AED",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>➕ Nouveau rôle</button>
         </Card>}
 
-        <Card title="🛵 Livreur">
-          <Field label="Numéro WhatsApp du livreur"><input value={livreurPhone} onChange={e=>setLivreurPhone(e.target.value)} placeholder="2250701234567" className="input"/></Field>
-          <p style={{fontSize:11,color:"#9AA8C4",marginTop:5}}>Format international sans + (ex: 2250701234567)</p>
-        </Card>
+        {isPatron&&<Card title="🛵 Livreurs">
+          <p style={{fontSize:12,color:"#5B6B8C",marginBottom:12,lineHeight:1.5}}>Ajoute tes livreurs (Abidjan, Bouaké, Yamoussoukro...). Le livreur <b>principal</b> est celui qui a l'application : les commandes transférées apparaissent sur sa page. Les autres reçoivent uniquement SMS/WhatsApp.</p>
+          {lvMsg&&<p style={{fontSize:12,color:lvMsg.includes("❌")?"#C0392B":"#1E8E54",marginBottom:12,fontWeight:600}}>{lvMsg}</p>}
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+            {(livreurs||[]).map(lv=>(
+              <div key={lv.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:12,border:"1px solid #E8ECF4",flexWrap:"wrap"}}>
+                <span style={{fontSize:18}}>🛵</span>
+                <div style={{flex:1,minWidth:120}}>
+                  <div style={{fontWeight:700,fontSize:13}}>{lv.nom} {lv.principal&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#EEF0FE",color:"#4F46E5",fontWeight:700}}>📲 Principal (app)</span>}</div>
+                  <div style={{fontSize:11,color:"#9AA8C4"}}>{lv.ville||"—"} · {lv.phone||"pas de numéro"}</div>
+                </div>
+                <button onClick={()=>setLvForm({id:lv.id,nom:lv.nom,ville:lv.ville||"",phone:lv.phone||"",principal:!!lv.principal})} style={{padding:"7px 9px",borderRadius:8,border:"1px solid #E8ECF4",background:"#fff",color:"#5B6B8C",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✏️</button>
+                <button onClick={()=>deleteLivreur(lv)} style={{padding:"7px 9px",borderRadius:8,border:"1px solid #F5C2C2",background:"#fff",color:"#C0392B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
+              </div>
+            ))}
+            {(livreurs||[]).length===0&&<p style={{fontSize:12,color:"#9AA8C4",textAlign:"center",padding:"8px 0"}}>Aucun livreur pour l'instant.</p>}
+          </div>
+          <button onClick={()=>setLvForm({nom:"",ville:"",phone:"",principal:false})} style={{width:"100%",padding:12,borderRadius:12,border:"2px dashed #C7D2FE",background:"#EEF0FE",color:"#4F46E5",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>➕ Ajouter un livreur</button>
+        </Card>}
 
         {isPatron&&<Card title="🔗 Boutique Shopify">
           <Field label="Domaine"><input value={shopifyStore} onChange={e=>setShopifyStore(e.target.value)} placeholder="yahni.myshopify.com" className="input"/></Field>
@@ -1731,6 +1869,23 @@ function SettingsPanel({settings,msgTemplate,setMsgTemplate,onSave,onClose,role,
           <div/>
           <button onClick={()=>{const v=resetPin.length>=4?"0":resetPin+"0"; setResetPin(v); if(v.length===4) adminSetPin(v);}} style={{padding:"16px 0",borderRadius:12,border:"1px solid #E8ECF4",background:"#F7F8FB",fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>0</button>
           <button onClick={()=>setResetPin(resetPin.slice(0,-1))} style={{padding:"16px 0",borderRadius:12,border:"1px solid #E8ECF4",background:"#F7F8FB",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",color:"#C0392B"}}>⌫</button>
+        </div>
+      </Sheet>}
+
+      {lvForm&&<Sheet onClose={()=>setLvForm(null)} title={lvForm.id?`✏️ Modifier · ${lvForm.nom||"livreur"}`:"➕ Nouveau livreur"}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Field label="Nom du livreur *"><input value={lvForm.nom} onChange={e=>setLvForm(p=>({...p,nom:e.target.value}))} placeholder="Ex: Livreur Bouaké" className="input"/></Field>
+          <Field label="Ville"><input value={lvForm.ville} onChange={e=>setLvForm(p=>({...p,ville:e.target.value}))} placeholder="Ex: Bouaké" className="input"/></Field>
+          <Field label="Numéro WhatsApp / SMS"><input value={lvForm.phone} onChange={e=>setLvForm(p=>({...p,phone:e.target.value}))} placeholder="2250701234567" className="input"/></Field>
+          <p style={{fontSize:11,color:"#9AA8C4",marginTop:-8}}>Format international sans + (ex: 2250701234567)</p>
+          <label style={{display:"flex",alignItems:"center",gap:10,padding:"11px 12px",borderRadius:10,border:"1px solid #E8ECF4",cursor:"pointer",fontSize:13}}>
+            <input type="checkbox" checked={!!lvForm.principal} onChange={e=>setLvForm(p=>({...p,principal:e.target.checked}))}/>
+            <span>📲 Livreur principal (c'est lui qui a l'application — un seul possible)</span>
+          </label>
+          <div style={{display:"flex",gap:10,marginTop:4}}>
+            <button onClick={()=>setLvForm(null)} className="btn btn-outline" style={{flex:1}}>Annuler</button>
+            <button onClick={saveLivreur} className="btn btn-gold" style={{flex:2}}>✓ Enregistrer</button>
+          </div>
         </div>
       </Sheet>}
 
