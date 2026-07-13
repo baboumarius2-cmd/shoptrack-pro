@@ -25,22 +25,10 @@ function NotifSetup({role, isLivreur, banner}){
     setChecking(false);
   })(); },[]);
   async function enable(){
-    try{
-      setMsg("");
-      if(!("serviceWorker" in navigator)||!("PushManager" in window)||typeof Notification==="undefined"){ setMsg("❌ Non supporté par ce navigateur. Utilise l'app installée (APK) ou Chrome."); return; }
-      const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      if(!pub){ setMsg("❌ Clé manquante : ajoute NEXT_PUBLIC_VAPID_PUBLIC_KEY dans Vercel puis redéploie."); return; }
-      const perm = await Notification.requestPermission();
-      if(perm!=="granted"){ setMsg("❌ Permission refusée. Autorise les notifications pour Yah-ni dans les réglages du téléphone."); return; }
-      const reg = await navigator.serviceWorker.register("/sw.js");
-      await navigator.serviceWorker.ready;
-      let sub = await reg.pushManager.getSubscription();
-      if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlBase64ToUint8Array(pub) });
-      const r = await fetch("/api/push-subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"subscribe",role,notifType:isLivreur?"livraisons":"commandes",subscription:sub.toJSON()})});
-      const d = await r.json();
-      if(d.success){ setOn(true); setMsg(isLivreur?"✅ Activé ! Tu seras prévenu dès qu'une commande arrive sur ta page.":"✅ Activé ! Cet appareil sera prévenu à chaque nouvelle commande."); }
-      else setMsg("❌ "+(d.error||"Erreur"));
-    }catch(e){ setMsg("❌ "+e.message); }
+    setMsg("");
+    const r = await activerNotifs(role, isLivreur);
+    setMsg(r.msg);
+    if(r.ok) setOn(true);
   }
   async function disable(){
     try{
@@ -71,6 +59,59 @@ function NotifSetup({role, isLivreur, banner}){
         ? <button onClick={enable} className="btn btn-gold" style={{width:"100%"}}>🔔 Activer les notifications sur cet appareil</button>
         : <button onClick={disable} className="btn btn-outline" style={{width:"100%"}}>🔕 Désactiver sur cet appareil</button>}
     </Card>
+  );
+}
+
+/* Active les notifications push sur cet appareil (partagé : Paramètres, bandeau livreur, écran de bienvenue) */
+async function activerNotifs(role, isLivreur){
+  try{
+    if(!("serviceWorker" in navigator)||!("PushManager" in window)||typeof Notification==="undefined") return {ok:false,msg:"❌ Non supporté par ce navigateur. Utilise l'app installée (APK) ou Chrome."};
+    const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if(!pub) return {ok:false,msg:"❌ Clé manquante : ajoute NEXT_PUBLIC_VAPID_PUBLIC_KEY dans Vercel puis redéploie."};
+    const perm = await Notification.requestPermission();
+    if(perm!=="granted") return {ok:false,msg:"❌ Permission refusée. Autorise les notifications pour Yah-ni dans les réglages du téléphone."};
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlBase64ToUint8Array(pub) });
+    const r = await fetch("/api/push-subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"subscribe",role,notifType:isLivreur?"livraisons":"commandes",subscription:sub.toJSON()})});
+    const d = await r.json();
+    if(d.success) return {ok:true,msg:isLivreur?"✅ Activé ! Tu seras prévenu dès qu'une commande arrive sur ta page.":"✅ Activé ! Cet appareil sera prévenu à chaque nouvelle commande."};
+    return {ok:false,msg:"❌ "+(d.error||"Erreur")};
+  }catch(e){ return {ok:false,msg:"❌ "+e.message}; }
+}
+
+/* Écran de bienvenue au premier lancement : demande toutes les permissions en un clic */
+function OnboardingPerms({role, isLivreur, onDone}){
+  const [busy,setBusy]=useState(false);
+  const [msg,setMsg]=useState("");
+  async function toutActiver(){
+    setBusy(true);
+    const r = await activerNotifs(role, isLivreur);
+    setMsg(r.msg);
+    setBusy(false);
+    if(r.ok) setTimeout(onDone, 1600);
+  }
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.75)",backdropFilter:"blur(6px)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"fadeIn .25s ease"}}>
+      <div className="card scaleIn" style={{maxWidth:420,width:"100%",padding:"28px 24px",textAlign:"center"}}>
+        <div style={{width:64,height:64,borderRadius:18,background:"linear-gradient(135deg,#6366F1,#4338CA)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,margin:"0 auto 16px",boxShadow:"0 8px 24px rgba(79,70,229,0.4)"}}>🛍️</div>
+        <h2 style={{fontSize:19,fontWeight:800,marginBottom:8}}>Bienvenue sur Yah-ni Store !</h2>
+        <p style={{fontSize:13,color:"var(--text-soft,#5B6B8C)",lineHeight:1.6,marginBottom:18}}>Pour bien fonctionner, l'application a besoin de quelques autorisations sur cet appareil :</p>
+        <div style={{textAlign:"left",display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:12,background:"var(--bg,#F8FAFC)",border:"1px solid var(--border,#E9EDF3)"}}>
+            <span style={{fontSize:24}}>🔔</span>
+            <div>
+              <div style={{fontSize:13,fontWeight:700}}>Notifications</div>
+              <div style={{fontSize:11,color:"var(--text-mute,#94A3B8)"}}>{isLivreur?"Être prévenu dès qu'une livraison arrive sur ta page, même app fermée":"Être prévenu(e) à chaque nouvelle commande, même app fermée"}</div>
+            </div>
+          </div>
+        </div>
+        {msg&&<p style={{fontSize:12,fontWeight:600,color:msg.includes("❌")?"#C0392B":"#1E8E54",marginBottom:14}}>{msg}</p>}
+        <button onClick={toutActiver} disabled={busy} className="btn btn-gold" style={{width:"100%",padding:14,fontSize:15,marginBottom:10}}>{busy?"Activation...":"✅ Tout activer maintenant"}</button>
+        <button onClick={onDone} style={{background:"none",border:"none",color:"var(--text-mute,#94A3B8)",fontSize:12,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>Plus tard</button>
+      </div>
+    </div>
   );
 }
 
@@ -212,6 +253,27 @@ function AppInner() {
       navigator.serviceWorker.register("/sw.js").catch(()=>{});
     }
   },[]);
+
+  // Écran de bienvenue au premier lancement : propose d'activer les permissions (notifications)
+  const [showOnboard, setShowOnboard] = useState(false);
+  const [onboardMsg, setOnboardMsg] = useState("");
+  useEffect(()=>{
+    if(screen!=="app" || !rolesLoaded || !currentRoleObj) return;
+    if(lsGet("yahni_onboard_"+role)) return;
+    if(typeof Notification==="undefined" || !("serviceWorker" in navigator)){ lsSet("yahni_onboard_"+role,"1"); return; }
+    if(Notification.permission==="granted"){ lsSet("yahni_onboard_"+role,"1"); return; }
+    setShowOnboard(true);
+  },[screen, rolesLoaded, role, currentRoleObj]);
+  async function onboardActiver(){
+    setOnboardMsg("⏳ Activation...");
+    const r = await activerNotifs(role, isLivreur);
+    setOnboardMsg(r.msg);
+    if(r.ok){ lsSet("yahni_onboard_"+role,"1"); setTimeout(()=>setShowOnboard(false), 1500); }
+  }
+  function onboardPlusTard(){
+    lsSet("yahni_onboard_"+role,"1");
+    setShowOnboard(false);
+  }
 
   // Alerte in-app de secours : nouvelles commandes (Patron/Assistante) ou nouvelles livraisons (Livreur)
   const seenIdsRef = useRef(null);
@@ -893,6 +955,23 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {showAddDep&&<AddDepSheet newDep={newDep} setNewDep={setNewDep} onClose={()=>setShowAddDep(false)} onAdd={addDepense}/>}
       {showAddWish&&<AddWishSheet newWish={newWish} setNewWish={setNewWish} onClose={()=>setShowAddWish(false)} onAdd={addWish}/>}
       {showAddBoutique&&<AddBoutiqueSheet newBoutique={newBoutique} setNewBoutique={setNewBoutique} onClose={()=>setShowAddBoutique(false)} onAdd={addBoutique}/>}
+      {showOnboard&&<div style={{position:"fixed",inset:0,background:"linear-gradient(150deg,#0F172A 0%,#1E293B 55%,#0F172A 100%)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"fadeIn .3s ease"}}>
+        <div style={{maxWidth:400,width:"100%",textAlign:"center"}}>
+          <div style={{width:84,height:84,borderRadius:22,background:"linear-gradient(135deg,#6366F1,#4338CA)",margin:"0 auto 20px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,boxShadow:"0 0 50px rgba(79,70,229,0.45)"}}>🔔</div>
+          <h1 style={{color:"#fff",fontSize:24,fontWeight:800,marginBottom:10}}>Bienvenue {currentRoleObj?.icon} {currentRoleObj?.label} !</h1>
+          <p style={{color:"#94A3B8",fontSize:14,lineHeight:1.6,marginBottom:8}}>
+            {isLivreur
+              ? "Pour ne rater aucune livraison, active les notifications : ton téléphone sonnera dès qu'une commande arrive sur ta page, même app fermée."
+              : "Pour ne rater aucune commande, active les notifications : cet appareil sera prévenu à chaque nouvelle commande Shopify, même app fermée."}
+          </p>
+          <p style={{color:"#64748B",fontSize:12,marginBottom:24}}>Ton téléphone va te demander la permission — appuie sur « Autoriser ».</p>
+          {onboardMsg&&<p style={{fontSize:13,color:onboardMsg.includes("❌")?"#F09595":"#5DCAA5",fontWeight:600,marginBottom:16}}>{onboardMsg}</p>}
+          <button onClick={onboardActiver} className="btn btn-gold" style={{width:"100%",padding:16,fontSize:16,marginBottom:12}}>🔔 Tout activer</button>
+          <button onClick={onboardPlusTard} style={{background:"none",border:"none",color:"#64748B",fontSize:13,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>Plus tard</button>
+          <p style={{color:"#475569",fontSize:11,marginTop:20}}>Tu pourras toujours activer/désactiver plus tard {isLivreur?"depuis le bandeau sur ta page":"dans Paramètres → Notifications"}.</p>
+        </div>
+      </div>}
+
       {showSettings&&<SettingsPanel settings={settings} msgTemplate={msgTemplate} setMsgTemplate={setMsgTemplate} onSave={saveSettings} onClose={()=>setShowSettings(false)} role={role} isPatron={isPatron} ROLES={ROLES} reloadRoles={()=>fetch("/api/roles").then(r=>r.json()).then(list=>{const map={};(list||[]).forEach(r0=>{map[r0.slug]=r0;});setROLES(map);})} onResetDone={()=>{loadAll();loadOrders(viewDate);}} livreurs={livreurs} reloadLivreurs={()=>fetch("/api/livreurs").then(r=>r.json()).then(l=>setLivreurs(Array.isArray(l)?l:[]))}/>}
     </div>
   );
