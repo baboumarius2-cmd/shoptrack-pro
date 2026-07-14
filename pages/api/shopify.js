@@ -33,12 +33,13 @@ async function fetchBoutiqueOrders(boutique, start) {
 
 export default async function handler(req, res) {
   const supabase = getSupabase();
-  const { date } = req.query;
+  const { date, days } = req.query;
   const filterDate = date || new Date().toISOString().split("T")[0];
-  // On recule de 36h avant la date demandée pour couvrir tous les décalages de fuseau horaire
-  // (Shopify enregistre created_at dans le fuseau de la boutique, qui peut être différent d'UTC).
+  // Fenêtre de récupération : "days" jours avant la date demandée (défaut 7 pour le flux
+  // multi-jours), + 36h de marge pour couvrir tous les décalages de fuseau horaire.
   // Le tri par date exacte se fait ensuite côté client via o.date === viewDate.
-  const start = new Date(filterDate); start.setHours(0,0,0,0); start.setTime(start.getTime() - 36*3600*1000);
+  const nbDays = Math.min(parseInt(days)||7, 30);
+  const start = new Date(filterDate); start.setHours(0,0,0,0); start.setTime(start.getTime() - (nbDays*24+36)*3600*1000);
 
   try {
     let boutiques = [];

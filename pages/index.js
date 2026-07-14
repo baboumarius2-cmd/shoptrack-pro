@@ -184,6 +184,7 @@ function AppInner() {
   const [clientHisto, setClientHisto] = useState({});
   const [livreurs, setLivreurs] = useState([]);
   const [livreurFilter, setLivreurFilter] = useState("tous");
+  const [callFilter, setCallFilter] = useState("toutes");
   const [produits, setProduits] = useState([]);
   const [depenses, setDepenses] = useState([]);
   const [wishlist, setWishlist] = useState([]);
@@ -336,7 +337,7 @@ function AppInner() {
     setRefreshing(true);
     try{
       const d = forDate || TODAY;
-      const [shopR, savedR] = await Promise.all([ fetch(`/api/shopify?date=${d}`), fetch("/api/orders") ]);
+      const [shopR, savedR] = await Promise.all([ fetch(`/api/shopify?date=${d}&days=7`), fetch("/api/orders") ]);
       const shop = await shopR.json();
       const saved = await savedR.json();
       // Protection : si Shopify n'a rien renvoyé du tout (erreur), on garde la liste actuelle au lieu de l'écraser
@@ -360,11 +361,11 @@ function AppInner() {
         note:o.note||"", motif:o.motif||"", reportDate:o.report_date||"", wasReported:o.was_reported||false, isManual:!!o.is_manual,
         boutiqueNom:o.boutique_nom||"", boutiqueId:o.boutique_id||"",
         statutPar:o.statut_par||"", statutHeure:o.statut_heure||"",
-        livreurId:o.livreur_id||"", livreurNom:o.livreur_nom||"", transfertHeure:o.transfert_heure||"",
+        livreurId:o.livreur_id||"", livreurNom:o.livreur_nom||"", transfertHeure:o.transfert_heure||"", appelHeure:o.appel_heure||"", appelPar:o.appel_par||"",
       });
       const merged = shop.orders.map(o=>{
         const s = savedMap[o.shopifyId];
-        return s ? {...o, statut:s.statut||"en_attente", motif:s.motif||"", reportDate:s.report_date||"", contacted:s.contacted||[], transferred:s.transferred||false, livreurStatut:s.livreur_statut||"en_attente", wasReported:s.was_reported||false, statutPar:s.statut_par||"", statutHeure:s.statut_heure||"", livreurId:s.livreur_id||"", livreurNom:s.livreur_nom||"", transfertHeure:s.transfert_heure||""} : o;
+        return s ? {...o, statut:s.statut||"en_attente", motif:s.motif||"", reportDate:s.report_date||"", contacted:s.contacted||[], transferred:s.transferred||false, livreurStatut:s.livreur_statut||"en_attente", wasReported:s.was_reported||false, statutPar:s.statut_par||"", statutHeure:s.statut_heure||"", livreurId:s.livreur_id||"", livreurNom:s.livreur_nom||"", transfertHeure:s.transfert_heure||"", appelHeure:s.appel_heure||"", appelPar:s.appel_par||""} : o;
       });
       const mergedIds = new Set(merged.map(m=>m.shopifyId));
       const manuals = (saved||[]).filter(o=>o.is_manual).map(o=>fromSaved(o));
@@ -373,7 +374,8 @@ function AppInner() {
       // Filet de sécurité anti-disparition : les commandes Shopify du jour demandé déjà
       // enregistrées en base (statut, contact...) mais absentes de la réponse Shopify
       // (erreur partielle d'une boutique, limite API...) sont conservées à l'écran
-      const rescuedSaved = (saved||[]).filter(o=>!o.is_manual && o.statut!=="reportee" && o.date===d && !mergedIds.has(o.shopify_id)).map(o=>fromSaved(o));
+      const d7 = (()=>{ const t=new Date(d+"T12:00:00"); t.setDate(t.getDate()-6); return t.toISOString().split("T")[0]; })();
+      const rescuedSaved = (saved||[]).filter(o=>!o.is_manual && o.statut!=="reportee" && o.date>=d7 && o.date<=d && !mergedIds.has(o.shopify_id)).map(o=>fromSaved(o));
       setOrders([...merged, ...manuals, ...reportedSaved, ...rescuedSaved]);
     }catch(e){ console.error(e); }
     setRefreshing(false);
@@ -444,6 +446,8 @@ function AppInner() {
       was_reported:updates.wasReported!==undefined?updates.wasReported:o.wasReported,
       statut_par:updates.statutPar!==undefined?updates.statutPar:(o.statutPar||null),
       statut_heure:updates.statutHeure!==undefined?updates.statutHeure:(o.statutHeure||null),
+      appel_heure:updates.appelHeure!==undefined?updates.appelHeure:(o.appelHeure||null),
+      appel_par:updates.appelPar!==undefined?updates.appelPar:(o.appelPar||null),
       livreur_id:updates.livreurId!==undefined?updates.livreurId:(o.livreurId||null),
       livreur_nom:updates.livreurNom!==undefined?updates.livreurNom:(o.livreurNom||null),
       transfert_heure:updates.transfertHeure!==undefined?updates.transfertHeure:(o.transfertHeure||null),
@@ -491,7 +495,11 @@ function AppInner() {
   }
   function callCli(o){
     window.open(`tel:+${o.phone.replace(/\D/g,"")}`,"_blank");
-    const c=[...(o.contacted||[])]; if(!c.includes("appel"))c.push("appel"); updateOrder(o,{contacted:c});
+    const c=[...(o.contacted||[])];
+    if(!c.includes("appel")){
+      c.push("appel");
+      updateOrder(o,{contacted:c, appelHeure:nowHM(), appelPar:currentRoleObj?.label||role});
+    }
   }
   function smsCli(o){
     const p = o.phone.replace(/\D/g,"");
@@ -717,9 +725,19 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                 <Stat label="En attente" value={enAttente.length} icon="⏳" color="#F2922C"/>
                 {isPatron&&<Stat label="Net du jour" value={fmt(beneficeJour-depJour)+" F"} icon="💰" color="#8B5CF6"/>}
               </div>
+              {(()=>{
+                const appelees = todayOrders.filter(o=>(o.contacted||[]).includes("appel"));
+                const nonAppelees = todayOrders.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree");
+                const applyCall = (list)=> callFilter==="appelees"?list.filter(o=>(o.contacted||[]).includes("appel")):callFilter==="non_appelees"?list.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree"):list;
+                return <>
+              <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+                <button onClick={()=>setCallFilter("toutes")} style={{padding:"8px 16px",borderRadius:20,cursor:"pointer",border:"1px solid var(--border,#E8ECF4)",background:callFilter==="toutes"?"#4F46E5":"var(--card)",color:callFilter==="toutes"?"#fff":"var(--text-soft,#5B6B8C)",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>Toutes ({todayOrders.length})</button>
+                <button onClick={()=>setCallFilter("appelees")} style={{padding:"8px 16px",borderRadius:20,cursor:"pointer",border:"1px solid #A8E6C9",background:callFilter==="appelees"?"#10B981":"#E3F7EE",color:callFilter==="appelees"?"#fff":"#1E8E54",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>📞 Appelées ({appelees.length})</button>
+                <button onClick={()=>setCallFilter("non_appelees")} style={{padding:"8px 16px",borderRadius:20,cursor:"pointer",border:"1px solid #F5C2C2",background:callFilter==="non_appelees"?"#E5484D":"#FDEAEA",color:callFilter==="non_appelees"?"#fff":"#C0392B",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>🚫 Pas appelées ({nonAppelees.length})</button>
+              </div>
               {refreshing&&orders.length===0?<OrderSkeleton/>:(
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:18}}>
-                  {[{t:"🏙️ Abidjan",items:abidjan,c:"#6366F1",bg:"#EEF0FE"},{t:"🛣️ Hors Abidjan",items:hors,c:"#E5B567",bg:"#FBF4E6"},{t:"❓ Inconnu",items:autre,c:"#9AA8C4",bg:"#F2F4F8"}].map(({t,items,c,bg})=>(
+                  {[{t:"🏙️ Abidjan",items:applyCall(abidjan),c:"#6366F1",bg:"#EEF0FE"},{t:"🛣️ Hors Abidjan",items:applyCall(hors),c:"#E5B567",bg:"#FBF4E6"},{t:"❓ Inconnu",items:applyCall(autre),c:"#9AA8C4",bg:"#F2F4F8"}].map(({t,items,c,bg})=>(
                     <div key={t}>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,padding:"10px 14px",background:bg,borderRadius:10}}>
                         <span style={{fontWeight:700,fontSize:14,color:c}}>{t}</span>
@@ -731,10 +749,34 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                 </div>
               )}
               {!refreshing&&todayOrders.length===0&&<Empty icon="📭" title="Aucune commande aujourd'hui" sub="Les commandes Shopify apparaîtront ici"/>}
+
+              {/* ── FLUX DES JOURS PRÉCÉDENTS (façon Shopify : on défile vers le passé) ── */}
+              {callFilter==="toutes"&&[1,2,3,4,5,6].map(k=>{
+                const dt = new Date(viewDate+"T12:00:00"); dt.setDate(dt.getDate()-k);
+                const dStr = dt.toISOString().split("T")[0];
+                const list = orders.filter(o=>o.date===dStr || (o.statut==="reportee"&&o.reportDate===dStr)).sort((a,b)=>(b.heure||"").localeCompare(a.heure||""));
+                if(list.length===0) return null;
+                const label = k===1?"Hier":k===2?"Avant-hier":"";
+                const dateFr = dt.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
+                return (
+                  <div key={dStr} style={{marginTop:28}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,padding:"12px 16px",background:"var(--card)",border:"1px solid var(--border,#E9EDF3)",borderRadius:12,position:"sticky",top:60,zIndex:5}}>
+                      <span style={{fontSize:20}}>📅</span>
+                      <div>
+                        <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>{label||dateFr.charAt(0).toUpperCase()+dateFr.slice(1)}</div>
+                        {label&&<div style={{fontSize:12,color:"var(--text-mute,#94A3B8)"}}>{dateFr}</div>}
+                      </div>
+                      <span style={{marginLeft:"auto",background:"#4F46E5",color:"#fff",borderRadius:20,padding:"3px 11px",fontSize:12,fontWeight:700}}>{list.length}</span>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:14}}>
+                      {list.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+                    </div>
+                  </div>
+                );
+              })}
+              </>;})()}
             </div>
           )}
-
-          {/* ═══ LIVRAISONS (livreur) ═══ */}
           {tab==="livraisons" && isLivreur && (
             <div className="fadeIn">
               <NotifSetup role={role} isLivreur banner/>
@@ -1200,7 +1242,7 @@ function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS
         <div style={{width:40,height:40,borderRadius:"50%",background:bc+"1E",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:bc,flexShrink:0}}>{initiales(o.client)}</div>
         <div style={{flex:1,minWidth:0}}>
           <div className="order-client" style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>{o.client}</div>
-          <div style={{fontSize:11,color:"var(--text-mute,#94A3B8)"}}>{o.numero||o.id}{o.heure?` · reçue à ${o.heure}`:""}</div>
+          <div style={{fontSize:12,color:"var(--text-mute,#94A3B8)"}}>{o.numero||o.id}{o.heure?<> · <b style={{color:"var(--text-soft,#475569)",fontSize:13}}>🕐 {o.heure}</b></>:null}</div>
         </div>
         <div style={{textAlign:"right",flexShrink:0}}>
           {isLivree&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#10B981",color:"#fff",fontWeight:700}}>✓ Livrée</span>}
@@ -1219,7 +1261,7 @@ function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS
         {o.wasReported&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>↩️ Reporté</span>}
         {c.includes("whatsapp")&&<span style={{fontSize:10,color:"#1E8E54",fontWeight:600}}>✓ WhatsApp envoyé</span>}
         {c.includes("sms")&&<span style={{fontSize:10,color:"#2563EB",fontWeight:600}}>✓ SMS envoyé</span>}
-        {c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:600}}>✓ Appelé</span>}
+        {c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:600}}>✓ Appelé{o.appelHeure?` à ${o.appelHeure}`:""}{o.appelPar?` par ${o.appelPar}`:""}</span>}
         {o.transferred&&<span style={{fontSize:10,color:"#B45309",fontWeight:600}}>🛵 Envoyée à {o.livreurNom||"livreur"}{o.transfertHeure?` à ${o.transfertHeure}`:""}</span>}
       </div>
 
