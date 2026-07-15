@@ -169,6 +169,10 @@ function AppInner() {
   function lsGet(k){ try{ return localStorage.getItem(k); }catch{ return null; } }
   function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch{} }
   function lsRemove(k){ try{ localStorage.removeItem(k); }catch{} }
+  // Session : le code PIN est redemandé à chaque nouvelle ouverture de l'app
+  function ssGet(k){ try{ return sessionStorage.getItem(k); }catch{ return null; } }
+  function ssSet(k,v){ try{ sessionStorage.setItem(k,v); }catch{} }
+  function ssRemove(k){ try{ sessionStorage.removeItem(k); }catch{} }
   const [screen, setScreen] = useState("login");
   const [loginRole, setLoginRole] = useState(null);
   const [role, setRole] = useState(null);
@@ -236,8 +240,9 @@ function AppInner() {
   function can(mod){ return isPatron || !!perms[mod]; }
 
   useEffect(()=>{
-    const saved = lsGet("yahni_role");
+    const saved = ssGet("yahni_role");
     if(saved){ setRole(saved); setScreen("app"); }
+    ssRemove("yahni_role"); // nettoyage de l'ancienne connexion permanente
   },[]);
 
   // Garde-fou : si le rôle a été supprimé, ou si l'onglet actuel n'est plus autorisé, on corrige
@@ -298,7 +303,7 @@ function AppInner() {
   },[orders, screen, isLivreur, livreurs]);
 
   function logout(){
-    lsRemove("yahni_role");
+    ssRemove("yahni_role");
     setRole(null); setScreen("login"); setLoginRole(null);
   }
 
@@ -311,7 +316,7 @@ function AppInner() {
     try{
       const r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"login",role:loginRole,password:pwd})});
       const d = await r.json();
-      if(d.success){ lsSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setPwd(""); setTab(defaultTabFor(ROLES[loginRole])); }
+      if(d.success){ ssSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setPwd(""); setTab(defaultTabFor(ROLES[loginRole])); }
       else if(d.error==="no_password") { setScreen("setup"); setPwd(""); }
       else { setErr(d.error||"Code incorrect"); setPwd(""); }
     }catch{ setErr("Erreur de connexion. Vérifiez votre internet."); setPwd(""); }
@@ -324,7 +329,7 @@ function AppInner() {
     try{
       const r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup",role:loginRole,newPassword:sPwd})});
       const d = await r.json();
-      if(d.success){ lsSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setSPwd(""); setSPwd2(""); setTab(defaultTabFor(ROLES[loginRole])); }
+      if(d.success){ ssSet("yahni_role",loginRole); setRole(loginRole); setScreen("app"); setSPwd(""); setSPwd2(""); setTab(defaultTabFor(ROLES[loginRole])); }
       else { setSErr(d.error); setSPwd(""); setSPwd2(""); }
     }catch{ setSErr("Erreur. Réessayez."); }
     setAuth(false);
@@ -361,11 +366,11 @@ function AppInner() {
         note:o.note||"", motif:o.motif||"", reportDate:o.report_date||"", wasReported:o.was_reported||false, isManual:!!o.is_manual,
         boutiqueNom:o.boutique_nom||"", boutiqueId:o.boutique_id||"",
         statutPar:o.statut_par||"", statutHeure:o.statut_heure||"",
-        livreurId:o.livreur_id||"", livreurNom:o.livreur_nom||"", transfertHeure:o.transfert_heure||"", appelHeure:o.appel_heure||"", appelPar:o.appel_par||"",
+        livreurId:o.livreur_id||"", livreurNom:o.livreur_nom||"", transfertHeure:o.transfert_heure||"", transfertDate:o.transfert_date||"", livreurPrincipal:(o.livreur_principal===true||o.livreur_principal===false)?o.livreur_principal:null, appelHeure:o.appel_heure||"", appelPar:o.appel_par||"",
       });
       const merged = shop.orders.map(o=>{
         const s = savedMap[o.shopifyId];
-        return s ? {...o, statut:s.statut||"en_attente", motif:s.motif||"", reportDate:s.report_date||"", contacted:s.contacted||[], transferred:s.transferred||false, livreurStatut:s.livreur_statut||"en_attente", wasReported:s.was_reported||false, statutPar:s.statut_par||"", statutHeure:s.statut_heure||"", livreurId:s.livreur_id||"", livreurNom:s.livreur_nom||"", transfertHeure:s.transfert_heure||"", appelHeure:s.appel_heure||"", appelPar:s.appel_par||""} : o;
+        return s ? {...o, statut:s.statut||"en_attente", motif:s.motif||"", reportDate:s.report_date||"", contacted:s.contacted||[], transferred:s.transferred||false, livreurStatut:s.livreur_statut||"en_attente", wasReported:s.was_reported||false, statutPar:s.statut_par||"", statutHeure:s.statut_heure||"", livreurId:s.livreur_id||"", livreurNom:s.livreur_nom||"", transfertHeure:s.transfert_heure||"", transfertDate:s.transfert_date||"", livreurPrincipal:(s.livreur_principal===true||s.livreur_principal===false)?s.livreur_principal:null, appelHeure:s.appel_heure||"", appelPar:s.appel_par||""} : o;
       });
       const mergedIds = new Set(merged.map(m=>m.shopifyId));
       const manuals = (saved||[]).filter(o=>o.is_manual).map(o=>fromSaved(o));
@@ -423,13 +428,18 @@ function AppInner() {
   // Une commande avec un livreur nommé différent du principal est TOUJOURS exclue,
   // même si l'identifiant n'a pas pu être enregistré (double sécurité).
   const estAuPrincipal = (o)=>{
+    // Flag enregistré au moment du transfert : fiable même si la liste des livreurs n'est pas chargée
+    if(o.livreurPrincipal===true) return true;
+    if(o.livreurPrincipal===false) return false;
+    // Anciennes commandes (avant cette mise à jour) :
     if(o.livreurId) return String(o.livreurId)===String(livreurPrincipal?.id||"");
     if(o.livreurNom && livreurPrincipal && o.livreurNom!==livreurPrincipal.nom) return false;
-    return true; // anciennes commandes sans livreur précisé = principal
+    return true;
   };
-  const livraisons = orders.filter(o=>o.transferred && o.date===viewDate && estAuPrincipal(o));
+  // Une commande apparaît chez le livreur à la date où on la lui a ENVOYÉE (pas la date de la commande)
+  const livraisons = orders.filter(o=>o.transferred && (o.transfertDate||o.date)===viewDate && estAuPrincipal(o));
   // Historique de tous les transferts (tous livreurs) pour l'onglet Livraisons
-  const transferts = orders.filter(o=>o.transferred && o.date===viewDate);
+  const transferts = orders.filter(o=>o.transferred && (o.transfertDate||o.date)===viewDate);
 
   /* ─ ORDER ACTIONS ─ */
   async function updateOrder(o, updates){
@@ -451,8 +461,22 @@ function AppInner() {
       livreur_id:updates.livreurId!==undefined?updates.livreurId:(o.livreurId||null),
       livreur_nom:updates.livreurNom!==undefined?updates.livreurNom:(o.livreurNom||null),
       transfert_heure:updates.transfertHeure!==undefined?updates.transfertHeure:(o.transfertHeure||null),
+      transfert_date:updates.transfertDate!==undefined?updates.transfertDate:(o.transfertDate||null),
+      livreur_principal:updates.livreurPrincipal!==undefined?updates.livreurPrincipal:(o.livreurPrincipal===true||o.livreurPrincipal===false?o.livreurPrincipal:null),
     };
-    await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",shopifyId:o.shopifyId,updates:body})});
+    // Enregistrement avec nouvelle tentative automatique : aucun transfert ne doit se perdre
+    let ok=false;
+    for(let tent=0;tent<3 && !ok;tent++){
+      try{
+        if(tent>0) await new Promise(r=>setTimeout(r,1500));
+        const r = await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",shopifyId:o.shopifyId,updates:body})});
+        const d = await r.json();
+        ok = !!d.success;
+        if(!ok && d.error && tent===2) toast("⚠️ Enregistrement échoué : "+d.error,"error");
+      }catch(e){
+        if(tent===2) toast("⚠️ Pas de réseau : l'action n'a pas été enregistrée. Réessaie.","error");
+      }
+    }
   }
 
   async function syncClient(o){
@@ -514,7 +538,7 @@ function AppInner() {
   }
   function doTransfer(o, livreur, canal){
     const lp = (livreur?.phone||"").replace(/\D/g,"");
-    updateOrder(o,{transferred:true, livreurId:String(livreur?.id||""), livreurNom:livreur?.nom||"", transfertHeure:nowHM()});
+    updateOrder(o,{transferred:true, livreurId:String(livreur?.id||""), livreurNom:livreur?.nom||"", transfertHeure:nowHM(), transfertDate:TODAY, livreurPrincipal:!!livreur?.principal});
     const msg=`🛵 Nouvelle livraison Yah-ni\n\n👤 ${o.client}\n📞 ${o.phone}\n📍 ${o.adresse||o.commune}\n📦 ${o.produit}\n💰 À encaisser : ${fmt(o.prix)} F${o.boutiqueNom?`\n🏪 ${o.boutiqueNom}`:""}\n\nMerci ✅`;
     if(canal!=="app"){
       if(lp){
@@ -550,12 +574,14 @@ function AppInner() {
       produitId:prod?.shopify_id||"", quantite:+newOrder.qte||1, prix:(prod?.prix_vente||0)*(+newOrder.qte||1),
       commune:newOrder.commune, adresse:newOrder.commune, livraison:2000, statut:"en_attente", date:TODAY,
       heure:new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}), contacted:[], transferred:false,
-      livreurStatut:"en_attente", note:newOrder.note, motif:"", reportDate:"", wasReported:false, isManual:true };
+      livreurStatut:"en_attente", note:newOrder.note, motif:"", reportDate:"", wasReported:false, isManual:true,
+      ...(isLivreur?{transferred:true, transfertDate:TODAY, transfertHeure:new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}), livreurPrincipal:true, livreurNom:(livreurs.find(l=>l.principal)?.nom)||"", livreurId:String(livreurs.find(l=>l.principal)?.id||"")}:{}) };
     setOrders(p=>[order,...p]);
     await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add_manual",order:{
       shopify_id:id, numero:order.numero, client:order.client, phone:order.phone, produit:order.produit, produit_id:order.produitId,
       quantite:order.quantite, prix:order.prix, commune:order.commune, adresse:order.commune, statut:"en_attente",
-      date:TODAY, heure:order.heure, contacted:[], transferred:false, livreur_statut:"en_attente", note:order.note, is_manual:true }})});
+      date:TODAY, heure:order.heure, contacted:[], transferred:order.transferred||false, livreur_statut:"en_attente", note:order.note, is_manual:true,
+      ...(order.transferred?{transfert_date:order.transfertDate, transfert_heure:order.transfertHeure, livreur_principal:true, livreur_nom:order.livreurNom||null, livreur_id:order.livreurId||null}:{}) }})});
     setNewOrder({client:"",phone:"",produit:"",qte:"1",commune:"Cocody",note:""}); setShowAddOrder(false); toast("✍️ Commande ajoutée");
   }
 
@@ -781,13 +807,14 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
             <div className="fadeIn">
               <NotifSetup role={role} isLivreur banner/>
               <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
+              <button onClick={()=>setShowAddOrder(true)} style={{width:"100%",padding:13,borderRadius:14,border:"2px dashed #C7D2FE",background:"#EEF0FE",color:"#4F46E5",fontSize:14,fontWeight:700,cursor:"pointer",margin:"14px 0 0",fontFamily:"inherit"}}>➕ Ajouter une commande</button>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:22,marginTop:16}}>
                 <Stat label="À livrer" value={livraisons.filter(o=>o.livreurStatut!=="livre").length} icon="📦" color="#F59E0B"/>
                 <Stat label="Livrées" value={livraisons.filter(o=>o.livreurStatut==="livre").length} icon="✅" color="#10B981"/>
                 <Stat label="Total" value={livraisons.length} icon="🛵" color="#3B82F6"/>
               </div>
               {livraisons.length===0?<Empty icon="🛵" title={viewDate===TODAY?"Aucune livraison aujourd'hui":"Aucune livraison ce jour-là"} sub="Les commandes transférées apparaîtront ici. Navigue avec le calendrier pour revoir tes anciennes livraisons."/>:
-                livraisons.map((o,i)=><LivreurCard key={o.shopifyId} o={o} i={i} onUpdate={livreurUpdate} onCall={callCli}/>)}
+                livraisons.map((o,i)=><LivreurCard key={o.shopifyId} o={o} i={i} onUpdate={livreurUpdate} onCall={callCli} onProbleme={(ord)=>setModal({type:"motif",order:ord})}/>)}
             </div>
           )}
 
@@ -1320,7 +1347,7 @@ function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS
   );
 }
 
-function LivreurCard({o,i,onUpdate,onCall}){
+function LivreurCard({o,i,onUpdate,onCall,onProbleme}){
   const st=o.livreurStatut||"en_attente";
   const steps=[{id:"en_route",l:"En route",icon:"🚗"},{id:"arrive",l:"Arrivé",icon:"📍"},{id:"livre",l:"Livré",icon:"✅"}];
   const stepIdx=st==="livre"?2:st==="arrive"?1:st==="en_route"?0:-1;
@@ -1359,6 +1386,8 @@ function LivreurCard({o,i,onUpdate,onCall}){
           </button>
         ))}
       </div>
+      {st!=="livre"&&o.statut!=="non_livree"&&<button onClick={()=>onProbleme&&onProbleme(o)} style={{width:"100%",marginTop:8,padding:"11px 6px",borderRadius:10,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>✗ Problème de livraison</button>}
+      {o.statut==="non_livree"&&o.motif&&<div style={{marginTop:8,background:"#FDEAEA",borderRadius:10,padding:"9px 12px",fontSize:12,color:"#C0392B",fontWeight:600}}>💬 {o.motif}</div>}
     </div>
   );
 }
