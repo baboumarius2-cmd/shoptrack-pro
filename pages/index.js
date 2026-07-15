@@ -1333,6 +1333,7 @@ function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS
           {!o.transferred
             ? <button onClick={onTransfer} style={{width:"100%",marginTop:8,padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#F59E0B,#D97706)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📤 Envoyer la commande au livreur</button>
             : <div style={{marginTop:8,textAlign:"center",fontSize:12,color:"#B45309",fontWeight:600,padding:"6px 0"}}>✓ Déjà chez le livreur</div>}
+          {!isPatron&&<button onClick={onMotif} style={{width:"100%",marginTop:8,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:13,fontWeight:800,fontFamily:"inherit"}}>✗ Signaler un problème</button>}
         </>}
       </div>}
     </div>
