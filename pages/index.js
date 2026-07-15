@@ -565,6 +565,12 @@ function AppInner() {
     toast(statut==="livre"?"✅ Marqué livré":statut==="en_route"?"🚗 En route — SMS client prêt à envoyer":"📍 Arrivé");
   }
 
+  function doPasLivre(o, motif){
+    const isReport = motif && motif.toLowerCase().includes("reporter");
+    updateOrder(o,{ statut:isReport?"reportee":"non_livree", livreurStatut:"en_attente", motif, statutPar:currentRoleObj?.label||role, statutHeure:nowHM() });
+    toast("✗ Enregistré : "+motif);
+  }
+
   async function addOrderManual(){
     if(!newOrder.client||!newOrder.phone)return;
     const id="MANUAL-"+Date.now();
@@ -746,7 +752,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
             <div className="fadeIn">
               <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:22}}>
-                <Stat label="Total du jour" value={todayOrders.length} icon="📦" color="#E5B567" sub={`${abidjan.length} Abidjan`}/>
+                <Stat label="Total du jour" value={todayOrders.length} icon="📦" color="#E5B567"/>
                 <Stat label="Livrées" value={livrees.length} icon="✅" color="#2BB673" sub={`${todayOrders.length?Math.round(livrees.length/todayOrders.length*100):0}%`}/>
                 <Stat label="En attente" value={enAttente.length} icon="⏳" color="#F2922C"/>
                 {isPatron&&<Stat label="Net du jour" value={fmt(beneficeJour-depJour)+" F"} icon="💰" color="#8B5CF6"/>}
@@ -772,16 +778,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
               </div>
               <button onClick={()=>setCallFilter("toutes")} style={{width:"100%",padding:10,borderRadius:14,border:"none",cursor:"pointer",background:callFilter==="toutes"?"#0F172A":"var(--card,#fff)",color:callFilter==="toutes"?"#fff":"var(--text-soft,#475569)",fontSize:13,fontWeight:700,marginBottom:18,fontFamily:"inherit",boxShadow:"0 1px 3px rgba(15,23,42,.06)"}}>Voir toutes les commandes ({todayOrders.length})</button>
               {refreshing&&orders.length===0?<OrderSkeleton/>:(
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:18}}>
-                  {[{t:"🏙️ Abidjan",items:applyCall(abidjan),c:"#6366F1",bg:"#EEF0FE"},{t:"🛣️ Hors Abidjan",items:applyCall(hors),c:"#E5B567",bg:"#FBF4E6"},{t:"❓ Inconnu",items:applyCall(autre),c:"#9AA8C4",bg:"#F2F4F8"}].map(({t,items,c,bg})=>(
-                    <div key={t}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,padding:"10px 14px",background:bg,borderRadius:10}}>
-                        <span style={{fontWeight:700,fontSize:14,color:c}}>{t}</span>
-                        <span style={{marginLeft:"auto",background:c,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{items.length}</span>
-                      </div>
-                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate} callFilter={callFilter}/>)}
-                    </div>
-                  ))}
+                <div>
+                  {(()=>{
+                    const liste = applyCall(todayOrders).slice().sort((a,b)=>(b.heure||"").localeCompare(a.heure||""));
+                    if(liste.length===0) return <div style={{textAlign:"center",padding:"30px",color:"#CBD5E8",fontSize:14}}>Aucune commande</div>;
+                    return liste.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate} callFilter={callFilter}/>);
+                  })()}
                 </div>
               )}
               {!refreshing&&todayOrders.length===0&&<Empty icon="📭" title="Aucune commande aujourd'hui" sub="Les commandes Shopify apparaîtront ici"/>}
@@ -824,7 +826,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                 <Stat label="Total" value={livraisons.length} icon="🛵" color="#3B82F6"/>
               </div>
               {livraisons.length===0?<Empty icon="🛵" title={viewDate===TODAY?"Aucune livraison aujourd'hui":"Aucune livraison ce jour-là"} sub="Les commandes transférées apparaîtront ici. Navigue avec le calendrier pour revoir tes anciennes livraisons."/>:
-                livraisons.map((o,i)=><LivreurCard key={o.shopifyId} o={o} i={i} onUpdate={livreurUpdate} onCall={callCli} onProbleme={(ord)=>setModal({type:"motif",order:ord})}/>)}
+                livraisons.map((o,i)=><LivreurCard key={o.shopifyId} o={o} i={i} onUpdate={livreurUpdate} onCall={callCli} onPasLivre={doPasLivre}/>)}
             </div>
           )}
 
@@ -1338,18 +1340,24 @@ function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS
   );
 }
 
-function LivreurCard({o,i,onUpdate,onCall,onProbleme}){
+function LivreurCard({o,i,onUpdate,onCall,onPasLivre}){
+  const [showMotifs,setShowMotifs]=useState(false);
   const st=o.livreurStatut||"en_attente";
-  const steps=[{id:"en_route",l:"En route",icon:"🚗"},{id:"arrive",l:"Arrivé",icon:"📍"},{id:"livre",l:"Livré",icon:"✅"}];
-  const stepIdx=st==="livre"?2:st==="arrive"?1:st==="en_route"?0:-1;
+  const isLivre = st==="livre" || o.statut==="livree";
+  const isPasLivre = o.statut==="non_livree";
+  const steps=[{id:"en_route",l:"En route",icon:"🚗"},{id:"arrive",l:"Arrivé",icon:"📍"}];
+  const stepIdx=st==="arrive"?1:st==="en_route"?0:-1;
+  const MOTIFS_LIVREUR=["Client a refusé le produit","Client n'a pas décroché","Client absent / adresse introuvable","À reporter (client indisponible)","Je n'ai pas eu le temps","Commande annulée"];
+  const waMsg=`Bonjour ${o.client}, je suis votre livreur Yah-ni Store. Je vous apporte votre colis : ${o.produit}. Montant à prévoir : ${fmt(o.prix)} F. À tout de suite !`;
   return (
-    <div className="card" style={{padding:18,marginBottom:14,animation:`fadeIn .3s ease ${i*50}ms both`,borderLeft:`4px solid ${st==="livre"?"#2BB673":"#E5B567"}`}}>
+    <div className="card" style={{padding:18,marginBottom:14,animation:`fadeIn .3s ease ${i*50}ms both`,borderLeft:`4px solid ${isLivre?"#2BB673":isPasLivre?"#EF4444":"#E5B567"}`}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-        <div>
+        <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:18,fontWeight:700}}>{o.client}</div>
-          <div style={{fontSize:13,color:"#5B6B8C",marginTop:2}}>📦 {o.produit}</div>
+          <div style={{fontSize:13,color:"#5B6B8C",marginTop:2}}>📦 {o.produit}{o.heure?` · 🕐 ${o.heure}`:""}</div>
         </div>
-        {st==="livre"&&<span style={{fontSize:12,padding:"4px 10px",borderRadius:20,background:"#E3F7EE",color:"#1E8E54",fontWeight:700,height:"fit-content"}}>✓ Livré</span>}
+        {isLivre&&<span style={{fontSize:12,padding:"4px 10px",borderRadius:20,background:"#E3F7EE",color:"#1E8E54",fontWeight:700,height:"fit-content"}}>✓ Livré</span>}
+        {isPasLivre&&<span style={{fontSize:12,padding:"4px 10px",borderRadius:20,background:"#FDEAEA",color:"#C0392B",fontWeight:700,height:"fit-content"}}>✗ Pas livré</span>}
       </div>
       <div style={{background:"#E8F1FE",borderRadius:12,padding:14,marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
         <span style={{fontSize:24,flexShrink:0}}>📍</span>
@@ -1367,18 +1375,30 @@ function LivreurCard({o,i,onUpdate,onCall,onProbleme}){
       </div>
       <div style={{display:"flex",gap:8,marginBottom:14}}>
         <button onClick={()=>onCall(o)} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#E8F1FE",color:"#2563EB",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>📞 Appeler</button>
-        <button onClick={()=>{const p=(o.phone||"").replace(/\D/g,""); if(p) window.open(`https://wa.me/${p}?text=${encodeURIComponent(`Bonjour ${o.client}, je suis votre livreur Yah-ni Store pour votre colis (${o.produit}).`)}`,"_blank");}} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#25D366",color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>💬 WhatsApp</button>
+        <button onClick={()=>{const p=(o.phone||"").replace(/\D/g,""); if(p) window.open(`https://wa.me/${p}?text=${encodeURIComponent(waMsg)}`,"_blank");}} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#25D366",color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>💬 WhatsApp</button>
         <button onClick={()=>window.open(`https://maps.google.com/?q=${encodeURIComponent(o.adresse||o.commune)}`,"_blank")} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#F3E8FF",color:"#7C3AED",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>🗺️ Itinéraire</button>
       </div>
-      <div style={{display:"flex",gap:6}}>
+      {!isLivre&&!isPasLivre&&<div style={{display:"flex",gap:6,marginBottom:10}}>
         {steps.map((s,idx)=>(
-          <button key={s.id} onClick={()=>onUpdate(o,s.id)} style={{flex:1,padding:"10px 6px",borderRadius:10,border:"none",cursor:"pointer",background:idx<=stepIdx?(s.id==="livre"?"#2BB673":"#E5B567"):"#F2F4F8",color:idx<=stepIdx?"#fff":"#9AA8C4",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .15s"}}>
+          <button key={s.id} onClick={()=>onUpdate(o,s.id)} style={{flex:1,padding:"10px 6px",borderRadius:10,border:"none",cursor:"pointer",background:idx<=stepIdx?"#E5B567":"#F2F4F8",color:idx<=stepIdx?"#fff":"#9AA8C4",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .15s"}}>
             {s.icon} {s.l}
           </button>
         ))}
-      </div>
-      {st!=="livre"&&o.statut!=="non_livree"&&<button onClick={()=>onProbleme&&onProbleme(o)} style={{width:"100%",marginTop:8,padding:"11px 6px",borderRadius:10,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>✗ Problème de livraison</button>}
-      {o.statut==="non_livree"&&o.motif&&<div style={{marginTop:8,background:"#FDEAEA",borderRadius:10,padding:"9px 12px",fontSize:12,color:"#C0392B",fontWeight:600}}>💬 {o.motif}</div>}
+      </div>}
+      {!isLivre&&!isPasLivre&&!showMotifs&&<div style={{display:"flex",gap:8}}>
+        <button onClick={()=>onUpdate(o,"livre")} style={{flex:1.4,padding:14,borderRadius:12,border:"none",cursor:"pointer",background:"#10B981",color:"#fff",fontSize:15,fontWeight:800,fontFamily:"inherit"}}>✓ Livré</button>
+        <button onClick={()=>setShowMotifs(true)} style={{flex:1,padding:14,borderRadius:12,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:15,fontWeight:800,fontFamily:"inherit"}}>✗ Pas livré</button>
+      </div>}
+      {!isLivre&&!isPasLivre&&showMotifs&&<div style={{background:"#FEF6F6",borderRadius:12,padding:12,border:"1px solid #F5C2C2"}}>
+        <div style={{fontSize:12,fontWeight:800,color:"#C0392B",marginBottom:10}}>Pourquoi la commande n'a pas été livrée ?</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {MOTIFS_LIVREUR.map(m=>(
+            <button key={m} onClick={()=>{onPasLivre(o,m);setShowMotifs(false);}} style={{textAlign:"left",padding:"11px 13px",borderRadius:10,border:"1px solid #F0D0D0",background:"#fff",color:"#8B2E2E",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{m}</button>
+          ))}
+        </div>
+        <button onClick={()=>setShowMotifs(false)} style={{width:"100%",marginTop:10,padding:10,borderRadius:10,border:"none",background:"#F2F4F8",color:"#5B6B8C",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>← Annuler</button>
+      </div>}
+      {isPasLivre&&o.motif&&<div style={{marginTop:4,background:"#FDEAEA",borderRadius:10,padding:"9px 12px",fontSize:12,color:"#C0392B",fontWeight:600}}>💬 {o.motif}</div>}
     </div>
   );
 }
