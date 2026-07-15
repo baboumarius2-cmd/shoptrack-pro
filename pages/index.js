@@ -756,11 +756,21 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                 const nonAppelees = todayOrders.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree");
                 const applyCall = (list)=> callFilter==="appelees"?list.filter(o=>(o.contacted||[]).includes("appel")):callFilter==="non_appelees"?list.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree"):list;
                 return <>
-              <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-                <button onClick={()=>setCallFilter("toutes")} style={{padding:"8px 16px",borderRadius:20,cursor:"pointer",border:"1px solid var(--border,#E8ECF4)",background:callFilter==="toutes"?"#4F46E5":"var(--card)",color:callFilter==="toutes"?"#fff":"var(--text-soft,#5B6B8C)",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>Toutes ({todayOrders.length})</button>
-                <button onClick={()=>setCallFilter("appelees")} style={{padding:"8px 16px",borderRadius:20,cursor:"pointer",border:"1px solid #A8E6C9",background:callFilter==="appelees"?"#10B981":"#E3F7EE",color:callFilter==="appelees"?"#fff":"#1E8E54",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>📞 Appelées ({appelees.length})</button>
-                <button onClick={()=>setCallFilter("non_appelees")} style={{padding:"8px 16px",borderRadius:20,cursor:"pointer",border:"1px solid #F5C2C2",background:callFilter==="non_appelees"?"#E5484D":"#FDEAEA",color:callFilter==="non_appelees"?"#fff":"#C0392B",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>🚫 Pas appelées ({nonAppelees.length})</button>
+              <div style={{display:"flex",gap:10,marginBottom:8}}>
+                <div onClick={()=>setCallFilter(callFilter==="appelees"?"toutes":"appelees")} style={{flex:1,borderRadius:18,padding:"16px 14px",cursor:"pointer",position:"relative",overflow:"hidden",background:"linear-gradient(135deg,#0FA97A,#0B8A63)",color:"#fff",border:callFilter==="appelees"?"2px solid #0F172A":"2px solid transparent",boxShadow:callFilter==="appelees"?"0 6px 18px rgba(15,23,42,.18)":"none",transition:"all .15s"}}>
+                  <div style={{position:"absolute",right:10,top:10,fontSize:20,opacity:.35}}>📞</div>
+                  <div style={{fontSize:32,fontWeight:800,lineHeight:1}}>{appelees.length}</div>
+                  <div style={{fontSize:12,fontWeight:700,marginTop:6}}>Appelées</div>
+                  <div style={{fontSize:10,opacity:.75,marginTop:2}}>Voir la liste + heures</div>
+                </div>
+                <div onClick={()=>setCallFilter(callFilter==="non_appelees"?"toutes":"non_appelees")} style={{flex:1,borderRadius:18,padding:"16px 14px",cursor:"pointer",position:"relative",overflow:"hidden",background:"linear-gradient(135deg,#E5484D,#C23438)",color:"#fff",border:callFilter==="non_appelees"?"2px solid #0F172A":"2px solid transparent",boxShadow:callFilter==="non_appelees"?"0 6px 18px rgba(15,23,42,.18)":"none",transition:"all .15s"}}>
+                  <div style={{position:"absolute",right:10,top:10,fontSize:20,opacity:.35}}>🚫</div>
+                  <div style={{fontSize:32,fontWeight:800,lineHeight:1}}>{nonAppelees.length}</div>
+                  <div style={{fontSize:12,fontWeight:700,marginTop:6}}>Pas appelées</div>
+                  <div style={{fontSize:10,opacity:.75,marginTop:2}}>Qui reste à appeler</div>
+                </div>
               </div>
+              <button onClick={()=>setCallFilter("toutes")} style={{width:"100%",padding:10,borderRadius:14,border:"none",cursor:"pointer",background:callFilter==="toutes"?"#0F172A":"var(--card,#fff)",color:callFilter==="toutes"?"#fff":"var(--text-soft,#475569)",fontSize:13,fontWeight:700,marginBottom:18,fontFamily:"inherit",boxShadow:"0 1px 3px rgba(15,23,42,.06)"}}>Voir toutes les commandes ({todayOrders.length})</button>
               {refreshing&&orders.length===0?<OrderSkeleton/>:(
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:18}}>
                   {[{t:"🏙️ Abidjan",items:applyCall(abidjan),c:"#6366F1",bg:"#EEF0FE"},{t:"🛣️ Hors Abidjan",items:applyCall(hors),c:"#E5B567",bg:"#FBF4E6"},{t:"❓ Inconnu",items:applyCall(autre),c:"#9AA8C4",bg:"#F2F4F8"}].map(({t,items,c,bg})=>(
@@ -769,7 +779,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                         <span style={{fontWeight:700,fontSize:14,color:c}}>{t}</span>
                         <span style={{marginLeft:"auto",background:c,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{items.length}</span>
                       </div>
-                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+                      {items.length===0?<div style={{textAlign:"center",padding:"24px",color:"#CBD5E8",fontSize:13}}>Aucune commande</div>:items.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate} callFilter={callFilter}/>)}
                     </div>
                   ))}
                 </div>
@@ -795,7 +805,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                       <span style={{marginLeft:"auto",background:"#4F46E5",color:"#fff",borderRadius:20,padding:"3px 11px",fontSize:12,fontWeight:700}}>{list.length}</span>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:14}}>
-                      {list.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+                      {list.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate} callFilter={callFilter}/>)}
                     </div>
                   </div>
                 );
@@ -906,7 +916,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {tab==="reportees" && can('reportees') && (
             <div className="fadeIn">
               <div style={{background:"#FBF4E6",border:"1px solid #F0DFB8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#8A6D2F"}}>⏰ Ces commandes réapparaissent automatiquement le jour choisi</div>
-              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate}/>)}
+              {reportees.length===0?<Empty icon="⏰" title="Aucune commande reportée"/>:reportees.map((o,i)=><OrderCard key={o.shopifyId} o={o} i={i} isPatron={isPatron} seePrix={can("voir_montants")} hist={clientHisto[(o.phone||"").replace(/\D/g,"")]} onLivrer={()=>setModal({type:"livrer",order:o})} onMotif={()=>setModal({type:"motif",order:o})} onWA={()=>openWA(o)} onCall={()=>callCli(o)} onSMS={()=>smsCli(o)} onTransfer={()=>transfer(o)} viewDate={viewDate} callFilter={callFilter}/>)}
             </div>
           )}
         </div>
@@ -1250,99 +1260,80 @@ function initiales(nom){
   return ((parts[0]?.[0]||"")+(parts[1]?.[0]||parts[0]?.[1]||"")).toUpperCase()||"?";
 }
 
-function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS,onTransfer,viewDate}){
-  const isDue = o.statut==="reportee" && o.reportDate===viewDate; // reportée arrivée à échéance → ré-actionnable
+function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS,onTransfer,viewDate,callFilter}){
+  const [open,setOpen]=useState(false);
+  const isDue = o.statut==="reportee" && o.reportDate===viewDate;
   const isLivree=o.statut==="livree",isBad=o.statut==="non_livree",isRep=o.statut==="reportee" && !isDue;
   const actionnable = o.statut==="en_attente" || isDue;
   const c=o.contacted||[], bc=badgeColor(o.commune);
-  const borderColor = isLivree?"#10B981":isBad?"#EF4444":isRep?"#F59E0B":"#6366F1";
-  // Historique client : commandes précédentes enregistrées (même téléphone, autre commande)
+  const borderColor = isLivree?"#10B981":isBad?"#EF4444":isRep?"#F59E0B":"#4F46E5";
   const prevOrders = (hist||[]).filter(e=>e.id!==o.shopifyId).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const nbPrev = prevOrders.length;
   const lastPrev = prevOrders[0];
   const lastPrevLabel = lastPrev ? (lastPrev.statut==="livree"?"précédente livrée ✓":lastPrev.statut==="non_livree"?"précédente NON livrée ✗":"précédente en cours") : "";
-  return (
-    <div className="card order-card card-hover" style={{padding:"14px 16px",marginBottom:10,animation:`fadeIn .3s ease ${i*40}ms both`,borderLeft:`3px solid ${borderColor}`}}>
+  const statutBadge = isLivree?{t:"✓ Livrée",bg:"#10B981",fg:"#fff"}:isBad?{t:"⚠️ Problème",bg:"#FDEAEA",fg:"#C0392B"}:isRep?{t:"⏰ Reporté",bg:"#FBF4E6",fg:"#C99A4B"}:isDue?{t:"↩️ Aujourd'hui",bg:"#FEF3C7",fg:"#B45309"}:{t:"🕐 En attente",bg:"var(--orange-bg,#FFF3E0)",fg:"#B45309"};
 
-      {/* ── EN-TÊTE : avatar + nom + n°/heure + badge statut ── */}
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-        <div style={{width:40,height:40,borderRadius:"50%",background:bc+"1E",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:bc,flexShrink:0}}>{initiales(o.client)}</div>
+  return (
+    <div className="card" style={{marginBottom:12,overflow:"hidden",padding:0,animation:`fadeIn .3s ease ${i*30}ms both`,boxShadow:open?"0 8px 24px rgba(79,70,229,.14)":undefined}}>
+
+      {/* ── TÊTE COMPACTE (toujours visible, cliquable) ── */}
+      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:11,padding:14,cursor:"pointer"}}>
+        <div style={{width:42,height:42,borderRadius:"50%",background:bc+"1A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:bc,flexShrink:0}}>{initiales(o.client)}</div>
         <div style={{flex:1,minWidth:0}}>
-          <div className="order-client" style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>{o.client}</div>
-          <div style={{fontSize:12,color:"var(--text-mute,#94A3B8)"}}>{o.numero||o.id}{o.heure?<> · <b style={{color:"var(--text-soft,#475569)",fontSize:13}}>🕐 {o.heure}</b></>:null}</div>
+          <div style={{fontWeight:800,fontSize:15,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.client}</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,flexWrap:"wrap"}}>
+            {o.heure&&<span style={{fontSize:12,fontWeight:800,color:"var(--text-soft,#334155)",background:"var(--bg,#F1F5F9)",borderRadius:8,padding:"1px 7px"}}>🕐 {o.heure}</span>}
+            <span style={{fontSize:11,fontWeight:700,padding:"1px 8px",borderRadius:20,background:bc+"14",color:bc}}>{displayCommune(o.commune)}</span>
+            {callFilter==="appelees"&&c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:700}}>✓ {o.appelHeure||""}{o.appelPar?` · ${o.appelPar}`:""}</span>}
+            {callFilter==="non_appelees"&&<span style={{fontSize:10,color:"#C0392B",fontWeight:700}}>{o.phone}</span>}
+          </div>
         </div>
         <div style={{textAlign:"right",flexShrink:0}}>
-          {isLivree&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#10B981",color:"#fff",fontWeight:700}}>✓ Livrée</span>}
-          {isBad&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#FDEAEA",color:"#C0392B",fontWeight:700}}>⚠️ Problème</span>}
-          {isRep&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:700}}>⏰ Reporté</span>}
-          {isDue&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"#FEF3C7",color:"#B45309",fontWeight:700}}>↩️ Aujourd'hui</span>}
-          {actionnable&&!isDue&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"var(--orange-bg,#FEF3E2)",color:"#B45309",fontWeight:700}}>🕐 En attente</span>}
+          {seePrix&&<div style={{fontSize:15,fontWeight:800,color:"#10B981"}}>{fmt(o.prix)} F</div>}
+          <span style={{fontSize:10,fontWeight:800,borderRadius:20,padding:"2px 8px",display:"inline-block",marginTop:3,background:statutBadge.bg,color:statutBadge.fg}}>{statutBadge.t}</span>
         </div>
+        <div style={{color:"#B7C0CE",fontSize:14,transition:"transform .2s",transform:open?"rotate(90deg)":"none"}}>›</div>
       </div>
 
-      {/* ── BADGES : boutique, manuel, récidiviste, témoins de contact ── */}
-      <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
-        {nbPrev>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:700}}>🔁 {nbPrev+1}ᵉ commande · {lastPrevLabel}</span>}
-        {o.boutiqueNom&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:(o.boutiqueCouleur||"#6366F1")+"22",color:o.boutiqueCouleur||"#4F46E5",fontWeight:700}}>🏪 {o.boutiqueNom}</span>}
-        {o.isManual&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>✍️ Manuel</span>}
-        {o.wasReported&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#FBF4E6",color:"#C99A4B",fontWeight:600}}>↩️ Reporté</span>}
-        {c.includes("whatsapp")&&<span style={{fontSize:10,color:"#1E8E54",fontWeight:600}}>✓ WhatsApp envoyé</span>}
-        {c.includes("sms")&&<span style={{fontSize:10,color:"#2563EB",fontWeight:600}}>✓ SMS envoyé</span>}
-        {c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:600}}>✓ Appelé{o.appelHeure?` à ${o.appelHeure}`:""}{o.appelPar?` par ${o.appelPar}`:""}</span>}
-        {o.transferred&&<span style={{fontSize:10,color:"#B45309",fontWeight:600}}>🛵 Envoyée à {o.livreurNom||"livreur"}{o.transfertHeure?` à ${o.transfertHeure}`:""}</span>}
-      </div>
+      {/* ── DÉTAILS (au clic) ── */}
+      {open&&<div style={{padding:"0 14px 14px",borderTop:"1px solid var(--border,#F1F5F9)"}}>
 
-      {/* ── PRODUIT ── */}
-      <div className="order-produit" style={{color:"var(--text-soft)",fontSize:13,marginBottom:8}}>📦 {o.produit}</div>
-      {o.note&&<div style={{fontSize:11,color:"var(--text-mute,#9AA8C4)",marginBottom:8}}>📝 {o.note}</div>}
-
-      {/* ── LIEU DE LIVRAISON (bien visible) ── */}
-      <div style={{background:"var(--blue-bg,#E8F1FE)",borderRadius:10,padding:"10px 12px",marginBottom:8,display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:20,flexShrink:0}}>📍</span>
-        <div style={{minWidth:0}}>
-          <div style={{fontSize:14,fontWeight:700,color:"#1D4ED8"}}>{displayCommune(o.commune)}</div>
-          {o.adresse&&o.adresse!==o.commune&&<div style={{fontSize:12,color:"#2563EB"}}>{o.adresse}</div>}
+        <div style={{display:"flex",gap:5,margin:"10px 0 4px",flexWrap:"wrap",alignItems:"center"}}>
+          {nbPrev>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:700}}>🔁 {nbPrev+1}ᵉ commande · {lastPrevLabel}</span>}
+          {o.boutiqueNom&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:(o.boutiqueCouleur||"#6366F1")+"22",color:o.boutiqueCouleur||"#4F46E5",fontWeight:700}}>🏪 {o.boutiqueNom}</span>}
+          {o.isManual&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#F3E8FF",color:"#7C3AED",fontWeight:600}}>✍️ Manuel</span>}
+          {c.includes("whatsapp")&&<span style={{fontSize:10,color:"#1E8E54",fontWeight:600}}>✓ WhatsApp</span>}
+          {c.includes("sms")&&<span style={{fontSize:10,color:"#2563EB",fontWeight:600}}>✓ SMS</span>}
+          {c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:600}}>✓ Appelé{o.appelHeure?` à ${o.appelHeure}`:""}{o.appelPar?` par ${o.appelPar}`:""}</span>}
+          {o.transferred&&<span style={{fontSize:10,color:"#B45309",fontWeight:600}}>🛵 Envoyée à {o.livreurNom||"livreur"}{o.transfertHeure?` à ${o.transfertHeure}`:""}</span>}
         </div>
-      </div>
 
-      {/* ── MONTANT À ENCAISSER ── */}
-      {seePrix&&<div style={{background:"var(--bg,#F8FAFC)",border:"1px solid var(--border,#E9EDF3)",borderRadius:10,padding:"9px 12px",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <span style={{fontSize:11,color:"var(--text-mute,#94A3B8)"}}>À encaisser</span>
-        <span style={{fontSize:19,fontWeight:800,color:"#10B981"}}>{fmt(o.prix)} F{isPatron&&<span style={{fontSize:10,color:"var(--text-mute,#9AA8C4)",fontWeight:400}}> · net {fmt((o.prix||0)-o.livraison)} F</span>}</span>
+        <div style={{display:"flex",alignItems:"center",gap:9,padding:"10px 0 2px",fontSize:13,color:"var(--text-soft,#334155)"}}>📦 {o.produit}</div>
+        <div style={{display:"flex",alignItems:"center",gap:9,padding:"2px 0",fontSize:13,color:"var(--text-soft,#334155)"}}>📍 <b>{displayCommune(o.commune)}</b>{o.adresse&&o.adresse!==o.commune?` — ${o.adresse}`:""}</div>
+        <div style={{display:"flex",alignItems:"center",gap:9,padding:"2px 0",fontSize:13,color:"var(--text-soft,#334155)"}}>📱 {o.phone||"—"}</div>
+        {o.note&&<div style={{fontSize:12,color:"var(--text-mute,#9AA8C4)",padding:"2px 0"}}>📝 {o.note}</div>}
+        {seePrix&&isPatron&&<div style={{fontSize:12,color:"var(--text-mute,#9AA8C4)",padding:"2px 0"}}>💰 Net : {fmt((o.prix||0)-o.livraison)} F</div>}
+        {o.reportDate&&isRep&&<div style={{fontSize:12,color:"#C99A4B",padding:"2px 0",fontWeight:600}}>📅 Reporté au {o.reportDate}</div>}
+
+        {isLivree&&(o.statutHeure||o.statutPar)&&<div style={{fontSize:12,color:"#1E8E54",fontWeight:600,marginTop:8}}>✓ Livrée{o.statutHeure?` à ${o.statutHeure}`:""}{o.statutPar?` par ${o.statutPar}`:""}</div>}
+        {isBad&&<div style={{background:"#FDEAEA",borderRadius:10,padding:"9px 12px",marginTop:8,fontSize:12,color:"#C0392B",fontWeight:600}}>💬 Motif : {o.motif||"non précisé"}{o.statutPar?` — signalé par ${o.statutPar}`:""}{o.statutHeure?` à ${o.statutHeure}`:""}</div>}
+
+        {/* Actions (commande en attente uniquement) */}
+        {actionnable&&<>
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <button onClick={onCall} style={{flex:1,padding:"11px 4px",borderRadius:12,border:"none",background:"var(--bg,#F1F5F9)",color:"var(--text,#0F172A)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📞 Appeler</button>
+            <button onClick={onWA} style={{flex:1,padding:"11px 4px",borderRadius:12,border:"none",background:"#25D366",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>💬 WhatsApp</button>
+            <button onClick={onSMS} style={{flex:1,padding:"11px 4px",borderRadius:12,border:"none",background:"#2563EB",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>✉️ SMS</button>
+          </div>
+          {!o.transferred
+            ? <button onClick={onTransfer} style={{width:"100%",marginTop:8,padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#F59E0B,#D97706)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📤 Envoyer la commande au livreur</button>
+            : <div style={{marginTop:8,textAlign:"center",fontSize:12,color:"#B45309",fontWeight:600,padding:"6px 0"}}>✓ Déjà chez le livreur</div>}
+          {!isPatron&&<div style={{display:"flex",gap:8,marginTop:8}}>
+            <button onClick={onLivrer} style={{flex:1.4,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#10B981",color:"#fff",fontSize:13,fontWeight:800,fontFamily:"inherit"}}>✓ Livré</button>
+            <button onClick={onMotif} style={{flex:1,padding:12,borderRadius:12,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:13,fontWeight:800,fontFamily:"inherit"}}>✗ Problème</button>
+          </div>}
+        </>}
       </div>}
-
-      {o.reportDate&&isRep&&<div style={{fontSize:11,color:"#C99A4B",marginBottom:8,fontWeight:600}}>📅 Reporté au {o.reportDate}</div>}
-
-      {/* ── STATUT DÉTAILLÉ (vue supervision) ── */}
-      {isLivree&&(o.statutHeure||o.statutPar)&&<div style={{fontSize:12,color:"#1E8E54",fontWeight:600,marginBottom:8}}>✓ Livrée{o.statutHeure?` à ${o.statutHeure}`:""}{o.statutPar?` par ${o.statutPar}`:""}</div>}
-      {isBad&&<div style={{background:"#FDEAEA",borderRadius:10,padding:"9px 12px",marginBottom:8}}>
-        <div style={{fontSize:12,color:"#C0392B",fontWeight:600}}>💬 Motif : {o.motif||"non précisé"}{o.statutPar?` — signalé par ${o.statutPar}`:""}{o.statutHeure?` à ${o.statutHeure}`:""}</div>
-      </div>}
-
-      {/* ── ZONES D'ACTION (seulement si commande en attente) ── */}
-      {actionnable&&<>
-      <div style={{background:"var(--blue-bg,#E8F1FE)",borderRadius:12,padding:"9px 10px",marginBottom:8}}>
-        <div style={{fontSize:9,fontWeight:800,color:"#2563EB",letterSpacing:".06em",marginBottom:7,textTransform:"uppercase"}}>👤 Contacter le client</div>
-        <div style={{display:"flex",gap:6}}>
-          <button onClick={onCall} style={{flex:1,padding:"9px 6px",borderRadius:9,border:"none",background:"#fff",color:"#7C3AED",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(15,23,42,0.06)"}}>📞 Appeler</button>
-          <button onClick={onWA} style={{flex:1,padding:"9px 6px",borderRadius:9,border:"none",background:"#25D366",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(37,211,102,0.35)"}}>💬 WhatsApp</button>
-          <button onClick={onSMS} style={{flex:1,padding:"9px 6px",borderRadius:9,border:"none",background:"#2563EB",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(37,99,235,0.35)"}}>✉️ SMS</button>
-        </div>
-      </div>
-
-      <div style={{background:"var(--orange-bg,#FEF3E2)",borderRadius:12,padding:"9px 10px",marginBottom:!isPatron?10:0}}>
-        <div style={{fontSize:9,fontWeight:800,color:"#B45309",letterSpacing:".06em",marginBottom:7,textTransform:"uppercase"}}>🛵 Livreur</div>
-        {!o.transferred
-          ? <button onClick={onTransfer} style={{width:"100%",padding:"10px 6px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#F59E0B,#D97706)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(217,119,6,0.35)"}}>📤 Envoyer la commande au livreur</button>
-          : <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#B45309",fontWeight:600,justifyContent:"center",padding:"4px 0"}}>✓ Commande déjà chez le livreur</div>}
-      </div>
-
-      {/* ── CONFIRMATION : réservée à l'équipe (pas au Patron) ── */}
-      {!isPatron&&<div style={{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid var(--border,#F2F4F8)"}}>
-        <button onClick={onLivrer} style={{flex:1.4,padding:12,borderRadius:10,border:"none",cursor:"pointer",background:"#10B981",color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>✓ Livré</button>
-        <button onClick={onMotif} style={{flex:1,padding:12,borderRadius:10,border:"none",cursor:"pointer",background:"#FDEAEA",color:"#C0392B",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>✗ Problème</button>
-      </div>}
-      </>}
     </div>
   );
 }
