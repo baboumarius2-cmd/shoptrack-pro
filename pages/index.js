@@ -760,8 +760,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
               {(()=>{
                 const appelees = todayOrders.filter(o=>(o.contacted||[]).includes("appel"));
                 const nonAppelees = todayOrders.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree");
-                const applyCall = (list)=> callFilter==="appelees"?list.filter(o=>(o.contacted||[]).includes("appel")):callFilter==="non_appelees"?list.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree"):list;
+                const cf = isPatron ? callFilter : "toutes";
+                const applyCall = (list)=> cf==="appelees"?list.filter(o=>(o.contacted||[]).includes("appel")):cf==="non_appelees"?list.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree"):list;
                 return <>
+              {isPatron&&<>
               <div style={{display:"flex",gap:10,marginBottom:8}}>
                 <div onClick={()=>setCallFilter(callFilter==="appelees"?"toutes":"appelees")} style={{flex:1,borderRadius:18,padding:"16px 14px",cursor:"pointer",position:"relative",overflow:"hidden",background:"linear-gradient(135deg,#0FA97A,#0B8A63)",color:"#fff",border:callFilter==="appelees"?"2px solid #0F172A":"2px solid transparent",boxShadow:callFilter==="appelees"?"0 6px 18px rgba(15,23,42,.18)":"none",transition:"all .15s"}}>
                   <div style={{position:"absolute",right:10,top:10,fontSize:20,opacity:.35}}>📞</div>
@@ -777,6 +779,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                 </div>
               </div>
               <button onClick={()=>setCallFilter("toutes")} style={{width:"100%",padding:10,borderRadius:14,border:"none",cursor:"pointer",background:callFilter==="toutes"?"#0F172A":"var(--card,#fff)",color:callFilter==="toutes"?"#fff":"var(--text-soft,#475569)",fontSize:13,fontWeight:700,marginBottom:18,fontFamily:"inherit",boxShadow:"0 1px 3px rgba(15,23,42,.06)"}}>Voir toutes les commandes ({todayOrders.length})</button>
+              </>}
               {refreshing&&orders.length===0?<OrderSkeleton/>:(
                 <div>
                   {(()=>{
@@ -789,7 +792,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
               {!refreshing&&todayOrders.length===0&&<Empty icon="📭" title="Aucune commande aujourd'hui" sub="Les commandes Shopify apparaîtront ici"/>}
 
               {/* ── FLUX DES JOURS PRÉCÉDENTS (façon Shopify : on défile vers le passé) ── */}
-              {callFilter==="toutes"&&[1,2,3,4,5,6].map(k=>{
+              {cf==="toutes"&&[1,2,3,4,5,6].map(k=>{
                 const dt = new Date(viewDate+"T12:00:00"); dt.setDate(dt.getDate()-k);
                 const dStr = dt.toISOString().split("T")[0];
                 const list = orders.filter(o=>o.date===dStr || (o.statut==="reportee"&&o.reportDate===dStr)).sort((a,b)=>(b.heure||"").localeCompare(a.heure||""));
