@@ -22,8 +22,10 @@ async function fetchBoutiqueOrders(boutique, start) {
       adresse: `${a.address1||""} ${a.city||""}`.trim(),
       livraison: 2000,
       statut: "en_attente",
-      date: o.created_at.split("T")[0],
-      heure: new Date(o.created_at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}),
+      // Date et heure calculées dans le fuseau de la Côte d'Ivoire (Abidjan, UTC+0),
+      // pas dans le fuseau du serveur Vercel — sinon une commande du soir peut basculer au mauvais jour.
+      date: new Date(o.created_at).toLocaleDateString("en-CA",{timeZone:"Africa/Abidjan"}),
+      heure: new Date(o.created_at).toLocaleTimeString("fr-FR",{timeZone:"Africa/Abidjan",hour:"2-digit",minute:"2-digit"}),
       contacted: [], transferred:false, livreurStatut:"en_attente",
       note:o.note||"", motif:"", reportDate:"", wasReported:false, isManual:false,
       boutiqueNom: nom, boutiqueId: String(id), boutiqueCouleur: couleur||"#E5B567",
