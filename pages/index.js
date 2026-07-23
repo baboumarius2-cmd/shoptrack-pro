@@ -1587,16 +1587,16 @@ function WishlistTab({items,onAdd,onDel}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:16}}>
         {items.map(w=>(
           <div key={w.id} className="card fadeIn" style={{overflow:"hidden"}}>
-            <div style={{height:160,background:"#F2F4F8",position:"relative"}}>
-              {w.image?<img src={w.image} alt={w.nom} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",fontSize:40}}>📦</div>}
-              <button onClick={()=>onDel(w.id)} style={{position:"absolute",top:8,right:8,width:30,height:30,borderRadius:8,border:"none",background:"rgba(255,255,255,0.9)",color:"#E5484D",cursor:"pointer",fontSize:13}}>🗑</button>
+            <div onClick={()=>w.lien&&window.open(w.lien,"_blank")} style={{height:200,background:"var(--bg,#F2F4F8)",position:"relative",cursor:w.lien?"pointer":"default"}}>
+              {w.image?<img src={w.image} alt={w.nom} style={{width:"100%",height:"100%",objectFit:"contain",background:"#fff"}}/>:<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:6}}><span style={{fontSize:38,opacity:.35}}>🖼️</span><span style={{fontSize:11,color:"#9AA8C4"}}>Pas de photo</span></div>}
+              <button onClick={(e)=>{e.stopPropagation();onDel(w.id);}} style={{position:"absolute",top:8,right:8,width:30,height:30,borderRadius:8,border:"none",background:"rgba(255,255,255,0.92)",color:"#E5484D",cursor:"pointer",fontSize:13}}>🗑</button>
+              {w.source&&<span style={{position:"absolute",bottom:8,left:8,fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:"rgba(15,23,42,.75)",color:"#fff"}}>🏷️ {w.source}</span>}
             </div>
             <div style={{padding:14}}>
-              <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{w.nom}</div>
-              {w.prix_estime>0&&<div style={{fontSize:13,color:"#7C3AED",fontWeight:600,marginBottom:6}}>≈ {fmt(w.prix_estime)} F</div>}
-              {w.source&&<div style={{fontSize:11,color:"#9AA8C4",marginBottom:8}}>🏷️ {w.source}</div>}
-              {w.note&&<div style={{fontSize:11,color:"#5B6B8C",marginBottom:8}}>{w.note}</div>}
-              {w.lien&&<a href={w.lien} target="_blank" rel="noreferrer" style={{display:"block",textAlign:"center",padding:"8px",borderRadius:8,background:"#7C3AED",color:"#fff",fontSize:12,fontWeight:600,textDecoration:"none"}}>🔗 Voir le produit</a>}
+              <div style={{fontWeight:800,fontSize:15,marginBottom:5,lineHeight:1.3}}>{w.nom}</div>
+              {w.prix_estime>0&&<div style={{fontSize:15,color:"#7C3AED",fontWeight:800,marginBottom:6}}>≈ {fmt(w.prix_estime)} F</div>}
+              {w.note&&<div style={{fontSize:11,color:"var(--text-mute,#5B6B8C)",marginBottom:8}}>{w.note}</div>}
+              {w.lien&&<a href={w.lien} target="_blank" rel="noreferrer" style={{display:"block",textAlign:"center",padding:"10px",borderRadius:9,background:"#7C3AED",color:"#fff",fontSize:12,fontWeight:700,textDecoration:"none"}}>🔗 Ouvrir la page du produit</a>}
             </div>
           </div>
         ))}
@@ -1644,7 +1644,7 @@ function AddProdSheet({newProd,setNewProd,onClose,onAdd,onLinkShopify}){
         <Field label="Prix de vente (F)"><input type="number" value={newProd.prixVente} onChange={e=>setNewProd(p=>({...p,prixVente:e.target.value}))} placeholder="12000" className="input"/></Field>
         <Field label="Alerte stock bas"><input type="number" value={newProd.seuilAlerte} onChange={e=>setNewProd(p=>({...p,seuilAlerte:e.target.value}))} placeholder="10" className="input"/></Field>
       </div>
-      <Field label="Lien image (optionnel)"><input value={newProd.image} onChange={e=>setNewProd(p=>({...p,image:e.target.value}))} placeholder="https://..." className="input"/></Field>
+      <PhotoField value={newProd.image} onChange={url=>setNewProd(p=>({...p,image:url}))} lien={""} label="Photo du produit (optionnel)"/>
       <div style={{display:"flex",gap:10,marginTop:4}}>
         <button onClick={onClose} className="btn btn-outline" style={{flex:1}}>Annuler</button>
         <button onClick={onAdd} disabled={!newProd.nom||!newProd.stockInitial} className="btn btn-gold" style={{flex:2}}>✓ Ajouter</button>
@@ -1704,12 +1704,91 @@ function AddDepSheet({newDep,setNewDep,onClose,onAdd}){
   </Sheet>;
 }
 
+/* Champ photo : import depuis la galerie du téléphone OU récupération auto depuis le lien produit */
+function PhotoField({value, onChange, lien, label="Photo du produit"}){
+  const [busy,setBusy]=useState("");
+  const [msg,setMsg]=useState("");
+
+  // Réduit l'image avant envoi (photos de téléphone = plusieurs Mo)
+  function compresser(file){
+    return new Promise((resolve,reject)=>{
+      const reader=new FileReader();
+      reader.onload=()=>{
+        const img=new Image();
+        img.onload=()=>{
+          const max=1000;
+          let {width:w,height:h}=img;
+          if(w>max||h>max){ const r=Math.min(max/w,max/h); w=Math.round(w*r); h=Math.round(h*r); }
+          const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+          cv.getContext("2d").drawImage(img,0,0,w,h);
+          resolve(cv.toDataURL("image/jpeg",0.82));
+        };
+        img.onerror=()=>reject(new Error("Image illisible"));
+        img.src=reader.result;
+      };
+      reader.onerror=()=>reject(new Error("Lecture impossible"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function choisirFichier(e){
+    const file=e.target.files?.[0];
+    e.target.value="";
+    if(!file) return;
+    setBusy("galerie"); setMsg("");
+    try{
+      const dataUrl=await compresser(file);
+      const r=await fetch("/api/upload-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dataUrl})});
+      const d=await r.json();
+      if(d.success){ onChange(d.url); setMsg("✅ Photo ajoutée"); }
+      else setMsg("❌ "+(d.error||"Échec de l'envoi"));
+    }catch(err){ setMsg("❌ "+err.message); }
+    setBusy("");
+  }
+
+  async function depuisLien(){
+    if(!lien){ setMsg("❌ Colle d'abord le lien du produit ci-dessous"); return; }
+    setBusy("lien"); setMsg("");
+    try{
+      const r=await fetch("/api/lien-image?url="+encodeURIComponent(lien));
+      const d=await r.json();
+      if(d.success&&d.image){ onChange(d.image); setMsg("✅ Image récupérée depuis le lien"); }
+      else setMsg("❌ "+(d.error||"Image introuvable")+" — utilise plutôt la galerie");
+    }catch(err){ setMsg("❌ Échec — utilise plutôt la galerie"); }
+    setBusy("");
+  }
+
+  return (
+    <div>
+      <label style={{fontSize:12,fontWeight:600,color:"var(--text-soft,#5B6B8C)",display:"block",marginBottom:7}}>{label}</label>
+      <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+        <div style={{width:96,height:96,borderRadius:14,background:"var(--bg,#F2F4F8)",border:"1px solid var(--border,#E8ECF4)",overflow:"hidden",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
+          {value
+            ? <><img src={value} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                <button onClick={()=>{onChange("");setMsg("");}} style={{position:"absolute",top:4,right:4,width:24,height:24,borderRadius:7,border:"none",background:"rgba(255,255,255,.92)",color:"#E5484D",cursor:"pointer",fontSize:12,lineHeight:1}}>✕</button></>
+            : <span style={{fontSize:30,opacity:.4}}>🖼️</span>}
+        </div>
+        <div style={{flex:1,display:"flex",flexDirection:"column",gap:8}}>
+          <label style={{display:"block",padding:"11px 12px",borderRadius:11,background:"#EEF0FE",color:"#4F46E5",fontSize:13,fontWeight:700,textAlign:"center",cursor:"pointer"}}>
+            {busy==="galerie"?"⏳ Envoi...":"📸 Choisir dans la galerie"}
+            <input type="file" accept="image/*" onChange={choisirFichier} disabled={!!busy} style={{display:"none"}}/>
+          </label>
+          <button type="button" onClick={depuisLien} disabled={!!busy} style={{padding:"11px 12px",borderRadius:11,border:"1px solid var(--border,#E8ECF4)",background:"var(--card,#fff)",color:"var(--text-soft,#5B6B8C)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            {busy==="lien"?"⏳ Recherche...":"🔗 Récupérer depuis le lien"}
+          </button>
+        </div>
+      </div>
+      {msg&&<div style={{fontSize:11,marginTop:8,fontWeight:600,color:msg.startsWith("❌")?"#C0392B":"#1E8E54"}}>{msg}</div>}
+    </div>
+  );
+}
+
 function AddWishSheet({newWish,setNewWish,onClose,onAdd}){
   return <Sheet onClose={onClose} title="⭐ Produit à sourcer">
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
       <Field label="Nom du produit *"><input value={newWish.nom} onChange={e=>setNewWish(p=>({...p,nom:e.target.value}))} placeholder="Ex: Écouteurs sans fil" className="input"/></Field>
-      <Field label="Lien image"><input value={newWish.image} onChange={e=>setNewWish(p=>({...p,image:e.target.value}))} placeholder="Collez l'URL de l'image" className="input"/></Field>
-      <Field label="Lien du produit (Alibaba...)"><input value={newWish.lien} onChange={e=>setNewWish(p=>({...p,lien:e.target.value}))} placeholder="https://alibaba.com/..." className="input"/></Field>
+      <Field label="Lien du produit (Pinduoduo, Alibaba...)"><input value={newWish.lien} onChange={e=>setNewWish(p=>({...p,lien:e.target.value}))} placeholder="https://..." className="input"/></Field>
+      <PhotoField value={newWish.image} onChange={url=>setNewWish(p=>({...p,image:url}))} lien={newWish.lien}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Field label="Prix estimé (F)"><input type="number" value={newWish.prixEstime} onChange={e=>setNewWish(p=>({...p,prixEstime:e.target.value}))} placeholder="5000" className="input"/></Field>
         <Field label="Source"><input value={newWish.source} onChange={e=>setNewWish(p=>({...p,source:e.target.value}))} placeholder="Alibaba" className="input"/></Field>
