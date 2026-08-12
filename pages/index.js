@@ -436,10 +436,12 @@ function AppInner() {
     if(o.livreurNom && livreurPrincipal && o.livreurNom!==livreurPrincipal.nom) return false;
     return true;
   };
-  // Une commande apparaît chez le livreur à la date où on la lui a ENVOYÉE (pas la date de la commande)
-  const livraisons = orders.filter(o=>o.transferred && (o.transfertDate||o.date)===viewDate && estAuPrincipal(o));
+  // Date d'apparition chez le livreur : celle du transfert. Si elle manque (ancienne commande
+  // transférée avant la mise à jour), on la considère comme "aujourd'hui" pour ne JAMAIS la perdre.
+  const dateLivreur = (o)=> o.transfertDate || (o.date===TODAY ? o.date : TODAY);
+  const livraisons = orders.filter(o=>o.transferred && dateLivreur(o)===viewDate && estAuPrincipal(o));
   // Historique de tous les transferts (tous livreurs) pour l'onglet Livraisons
-  const transferts = orders.filter(o=>o.transferred && (o.transfertDate||o.date)===viewDate);
+  const transferts = orders.filter(o=>o.transferred && dateLivreur(o)===viewDate);
 
   /* ─ ORDER ACTIONS ─ */
   async function updateOrder(o, updates){
@@ -513,33 +515,41 @@ function AppInner() {
   }
   function sendWA(o){
     const p = o.phone.replace(/\D/g,"");
-    window.open(`https://wa.me/${p}?text=${encodeURIComponent(waMsg)}`,"_blank");
     const c=[...(o.contacted||[])]; if(!c.includes("whatsapp"))c.push("whatsapp");
     updateOrder(o,{contacted:c}); setModal(null); toast("💬 WhatsApp ouvert");
+    setTimeout(()=>{ window.open(`https://wa.me/${p}?text=${encodeURIComponent(waMsg)}`,"_blank"); }, 150);
   }
   function callCli(o){
-    window.open(`tel:+${o.phone.replace(/\D/g,"")}`,"_blank");
+    // On enregistre AVANT d'ouvrir le téléphone : sur mobile, l'ouverture de l'app Téléphone
+    // suspend la page et peut annuler la requête si elle part après.
     const c=[...(o.contacted||[])];
     if(!c.includes("appel")){
       c.push("appel");
       updateOrder(o,{contacted:c, appelHeure:nowHM(), appelPar:currentRoleObj?.label||role});
     }
+    setTimeout(()=>{ window.open(`tel:+${o.phone.replace(/\D/g,"")}`,"_blank"); }, 150);
   }
   function smsCli(o){
     const p = o.phone.replace(/\D/g,"");
     const msg = msgTemplate.replace("{nom}",o.client).replace("{produit}",o.produit).replace("{prix}",fmt(o.prix));
-    window.open(`sms:+${p}?body=${encodeURIComponent(msg)}`,"_blank");
-    const c=[...(o.contacted||[])]; if(!c.includes("sms"))c.push("sms"); updateOrder(o,{contacted:c});
+    const c=[...(o.contacted||[])]; if(!c.includes("sms"))c.push("sms");
+    updateOrder(o,{contacted:c});
     toast("✉️ SMS ouvert");
+    setTimeout(()=>{ window.open(`sms:+${p}?body=${encodeURIComponent(msg)}`,"_blank"); }, 150);
   }
   function transfer(o){
     // Étape 1 : choix du livreur, puis étape 2 : choix du canal
     setModal({type:"transfer", order:o, livreur:null});
   }
-  function doTransfer(o, livreur, canal){
+  async function doTransfer(o, livreur, canal){
     const lp = (livreur?.phone||"").replace(/\D/g,"");
-    updateOrder(o,{transferred:true, livreurId:String(livreur?.id||""), livreurNom:livreur?.nom||"", transfertHeure:nowHM(), transfertDate:TODAY, livreurPrincipal:!!livreur?.principal});
     const msg=`🛵 Nouvelle livraison Yah-ni\n\n👤 ${o.client}\n📞 ${o.phone}\n📍 ${o.adresse||o.commune}\n📦 ${o.produit}\n💰 À encaisser : ${fmt(o.prix)} F${o.boutiqueNom?`\n🏪 ${o.boutiqueNom}`:""}\n\nMerci ✅`;
+    // On ferme le modal et on ATTEND que l'enregistrement du transfert soit bien parti,
+    // AVANT d'ouvrir l'app SMS/WhatsApp (sinon la bascule mobile peut annuler la requête
+    // et la commande n'arrive jamais chez le livreur).
+    setModal(null);
+    await updateOrder(o,{transferred:true, livreurId:String(livreur?.id||""), livreurNom:livreur?.nom||"", transfertHeure:nowHM(), transfertDate:TODAY, livreurPrincipal:!!livreur?.principal});
+    toast(canal==="app"?`📲 Envoyé sur la page de ${livreur?.nom||"livreur"}`:`📤 Envoyé à ${livreur?.nom||"livreur"} par ${canal==="sms"?"SMS":"WhatsApp"}`);
     if(canal!=="app"){
       if(lp){
         if(canal==="sms") window.open(`sms:+${lp}?body=${encodeURIComponent(msg)}`,"_blank");
@@ -548,21 +558,18 @@ function AppInner() {
         toast("⚠️ Ce livreur n'a pas de numéro enregistré (Paramètres → Livreurs)","error");
       }
     }
-    setModal(null);
-    toast(canal==="app"?`📲 Envoyé sur la page de ${livreur?.nom||"livreur"}`:`📤 Envoyé à ${livreur?.nom||"livreur"} par ${canal==="sms"?"SMS":"WhatsApp"}`);
   }
-  function livreurUpdate(o, statut){
-    const map={en_route:"en_attente",arrive:"en_attente",livre:"livree"};
-    updateOrder(o,{livreurStatut:statut, ...(statut==="livre"?{statut:"livree",statutPar:currentRoleObj?.label||role,statutHeure:nowHM()}:{})});
-    // "En route" → ouvre un SMS pré-rempli pour prévenir le client (le livreur peut ajuster l'heure avant d'envoyer)
+  async function livreurUpdate(o, statut){
+    await updateOrder(o,{livreurStatut:statut, ...(statut==="livre"?{statut:"livree",statutPar:currentRoleObj?.label||role,statutHeure:nowHM()}:{})});
+    toast(statut==="livre"?"✅ Marqué livré":statut==="en_route"?"🚗 En route — SMS client prêt à envoyer":"📍 Arrivé");
+    // "En route" → ouvre un SMS pré-rempli pour prévenir le client (après enregistrement)
     if(statut==="en_route"){
       const p=(o.phone||"").replace(/\D/g,"");
       if(p){
         const msgClient=`Bonjour ${o.client}, votre livreur Yah-ni Store est en route pour vous livrer votre colis (${o.produit}). Montant à prévoir : ${fmt(o.prix)} F. Arrivée estimée : dans 30 à 45 min. Merci !`;
-        window.open(`sms:+${p}?body=${encodeURIComponent(msgClient)}`,"_blank");
+        setTimeout(()=>{ window.open(`sms:+${p}?body=${encodeURIComponent(msgClient)}`,"_blank"); }, 150);
       }
     }
-    toast(statut==="livre"?"✅ Marqué livré":statut==="en_route"?"🚗 En route — SMS client prêt à envoyer":"📍 Arrivé");
   }
 
   function doPasLivre(o, motif){
