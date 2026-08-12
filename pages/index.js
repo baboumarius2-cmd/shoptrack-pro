@@ -466,19 +466,29 @@ function AppInner() {
       transfert_date:updates.transfertDate!==undefined?updates.transfertDate:(o.transfertDate||null),
       livreur_principal:updates.livreurPrincipal!==undefined?updates.livreurPrincipal:(o.livreurPrincipal===true||o.livreurPrincipal===false?o.livreurPrincipal:null),
     };
-    // Enregistrement avec nouvelle tentative automatique : aucun transfert ne doit se perdre
-    let ok=false;
-    for(let tent=0;tent<3 && !ok;tent++){
-      try{
-        if(tent>0) await new Promise(r=>setTimeout(r,1500));
-        const r = await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",shopifyId:o.shopifyId,updates:body})});
-        const d = await r.json();
-        ok = !!d.success;
-        if(!ok && d.error && tent===2) toast("⚠️ Enregistrement échoué : "+d.error,"error");
-      }catch(e){
-        if(tent===2) toast("⚠️ Pas de réseau : l'action n'a pas été enregistrée. Réessaie.","error");
-      }
+    // Enregistrement fiable : on réessaie, et si la base refuse un champ récent
+    // (colonne pas encore créée), on renvoie l'essentiel plutôt que de tout perdre.
+    const champsOptionnels = ["appel_heure","appel_par","statut_par","statut_heure","livreur_id","livreur_nom","transfert_heure","transfert_date","livreur_principal"];
+    async function envoyer(payload){
+      const r = await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",shopifyId:o.shopifyId,updates:payload})});
+      return await r.json();
     }
+    let d=null;
+    for(let tent=0;tent<3;tent++){
+      try{
+        if(tent>0) await new Promise(r=>setTimeout(r,1200));
+        d = await envoyer(body);
+        if(d?.success) return;
+        // Colonne inexistante → on retente sans les champs récents pour sauver l'essentiel
+        if(d?.error && /column|colonne|schema/i.test(d.error)){
+          const secours={...body};
+          champsOptionnels.forEach(c=>delete secours[c]);
+          const d2 = await envoyer(secours);
+          if(d2?.success){ toast("⚠️ Enregistré, mais la base doit être mise à jour (SQL de réparation)","error"); return; }
+        }
+      }catch(e){ /* on retente */ }
+    }
+    toast("⚠️ Enregistrement échoué"+(d?.error?" : "+d.error:" — vérifie la connexion"),"error");
   }
 
   async function syncClient(o){
