@@ -14,14 +14,22 @@ export default async function handler(req, res) {
     const { action } = req.body;
     if (action === "update") {
       const { shopifyId, updates } = req.body;
-      // Détection d'un NOUVEAU transfert (pour notifier le livreur principal)
-      let nouveauTransfert = false;
-      if (updates.transferred === true) {
-        const { data: prev } = await supabase.from("orders").select("transferred").eq("shopify_id", shopifyId).maybeSingle();
-        nouveauTransfert = !prev?.transferred;
+      // On cherche d'abord la ligne, puis on met à jour OU on insère.
+      // (Plus fiable que upsert/onConflict, qui exige une contrainte d'unicité sur shopify_id.)
+      const { data: existante, error: errLecture } = await supabase
+        .from("orders").select("id, transferred").eq("shopify_id", shopifyId).maybeSingle();
+      if (errLecture) return res.status(500).json({ error: errLecture.message });
+
+      const nouveauTransfert = updates.transferred === true && !existante?.transferred;
+
+      let error;
+      if (existante) {
+        ({ error } = await supabase.from("orders").update(updates).eq("shopify_id", shopifyId));
+      } else {
+        ({ error } = await supabase.from("orders").insert({ shopify_id: shopifyId, ...updates }));
       }
-      const { error } = await supabase.from("orders").upsert({ shopify_id:shopifyId, ...updates }, { onConflict:"shopify_id" });
-      if (error) return res.status(500).json({ error:error.message });
+      if (error) return res.status(500).json({ error: error.message });
+
       // Push au livreur principal, uniquement si la commande lui est destinée
       if (nouveauTransfert) {
         try {
