@@ -6,9 +6,22 @@ export default async function handler(req, res) {
   if (!supabase) return res.status(500).json({ error:"Supabase non configuré" });
 
   if (req.method === "GET") {
-    const { data, error } = await supabase.from("orders").select("*");
-    if (error) return res.status(500).json({ error:error.message });
-    return res.status(200).json(data || []);
+    // Supabase renvoie au maximum 1000 lignes par requête. Au-delà, les commandes
+    // récentes seraient invisibles (statuts d'appel, transferts qui "disparaissent").
+    // On récupère donc les données par tranches, en commençant par les plus récentes.
+    const TRANCHE = 1000;
+    const MAX_TRANCHES = 12; // sécurité : jusqu'à 12 000 commandes
+    let toutes = [];
+    for (let i = 0; i < MAX_TRANCHES; i++) {
+      const { data, error } = await supabase
+        .from("orders").select("*")
+        .order("date", { ascending: false })
+        .range(i * TRANCHE, (i + 1) * TRANCHE - 1);
+      if (error) return res.status(500).json({ error: error.message });
+      toutes = toutes.concat(data || []);
+      if (!data || data.length < TRANCHE) break;
+    }
+    return res.status(200).json(toutes);
   }
   if (req.method === "POST") {
     const { action } = req.body;

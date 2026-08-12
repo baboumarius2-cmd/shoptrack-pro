@@ -2,6 +2,10 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Aucun élément ne doit déborder horizontalement de l'écran (mobile) */
+html, body { max-width: 100%; overflow-x: hidden; }
+.card { max-width: 100%; }
+
 :root {
   /* ── ACCENT BLEU/INDIGO FINTECH ── */
   --brand: #4F46E5;

@@ -1299,22 +1299,22 @@ function OrderCard({o,i,isPatron,seePrix,hist,onLivrer,onMotif,onWA,onCall,onSMS
     <div className="card" style={{marginBottom:12,overflow:"hidden",padding:0,animation:`fadeIn .3s ease ${i*30}ms both`,boxShadow:open?"0 8px 24px rgba(79,70,229,.14)":undefined}}>
 
       {/* ── TÊTE COMPACTE (toujours visible, cliquable) ── */}
-      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:11,padding:14,cursor:"pointer"}}>
-        <div style={{width:42,height:42,borderRadius:"50%",background:bc+"1A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:bc,flexShrink:0}}>{initiales(o.client)}</div>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontWeight:800,fontSize:15,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.client}</div>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,flexWrap:"wrap"}}>
-            {o.heure&&<span style={{fontSize:12,fontWeight:800,color:"var(--text-soft,#334155)",background:"var(--bg,#F1F5F9)",borderRadius:8,padding:"1px 7px"}}>🕐 {o.heure}</span>}
-            <span style={{fontSize:11,fontWeight:700,padding:"1px 8px",borderRadius:20,background:bc+"14",color:bc}}>{displayCommune(o.commune)}</span>
-            {callFilter==="appelees"&&c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:700}}>✓ {o.appelHeure||""}{o.appelPar?` · ${o.appelPar}`:""}</span>}
-            {callFilter==="non_appelees"&&<span style={{fontSize:10,color:"#C0392B",fontWeight:700}}>{o.phone}</span>}
+      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:9,padding:"12px 11px",cursor:"pointer",maxWidth:"100%",overflow:"hidden"}}>
+        <div style={{width:36,height:36,borderRadius:"50%",background:bc+"1A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:bc,flexShrink:0}}>{initiales(o.client)}</div>
+        <div style={{flex:1,minWidth:0,overflow:"hidden"}}>
+          <div style={{fontWeight:800,fontSize:14,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.client}</div>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,flexWrap:"wrap"}}>
+            {o.heure&&<span style={{fontSize:11,fontWeight:800,color:"var(--text-soft,#334155)",background:"var(--bg,#F1F5F9)",borderRadius:7,padding:"1px 6px",whiteSpace:"nowrap"}}>🕐 {o.heure}</span>}
+            <span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:20,background:bc+"14",color:bc,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:110}}>{displayCommune(o.commune)}</span>
+            {callFilter==="appelees"&&c.includes("appel")&&<span style={{fontSize:10,color:"#7C3AED",fontWeight:700,whiteSpace:"nowrap"}}>✓ {o.appelHeure||""}</span>}
+            {callFilter==="non_appelees"&&<span style={{fontSize:10,color:"#C0392B",fontWeight:700,whiteSpace:"nowrap"}}>{o.phone}</span>}
           </div>
         </div>
-        <div style={{textAlign:"right",flexShrink:0}}>
-          {seePrix&&<div style={{fontSize:15,fontWeight:800,color:"#10B981"}}>{fmt(o.prix)} F</div>}
-          <span style={{fontSize:10,fontWeight:800,borderRadius:20,padding:"2px 8px",display:"inline-block",marginTop:3,background:statutBadge.bg,color:statutBadge.fg}}>{statutBadge.t}</span>
+        <div style={{textAlign:"right",flexShrink:0,maxWidth:96}}>
+          {seePrix&&<div style={{fontSize:14,fontWeight:800,color:"#10B981",whiteSpace:"nowrap"}}>{fmt(o.prix)} F</div>}
+          <span style={{fontSize:9,fontWeight:800,borderRadius:20,padding:"2px 7px",display:"inline-block",marginTop:2,background:statutBadge.bg,color:statutBadge.fg,whiteSpace:"nowrap"}}>{statutBadge.t}</span>
         </div>
-        <div style={{color:"#B7C0CE",fontSize:14,transition:"transform .2s",transform:open?"rotate(90deg)":"none"}}>›</div>
+        <div style={{color:"#B7C0CE",fontSize:13,flexShrink:0,transition:"transform .2s",transform:open?"rotate(90deg)":"none"}}>›</div>
       </div>
 
       {/* ── DÉTAILS (au clic) ── */}
