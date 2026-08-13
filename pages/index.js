@@ -189,6 +189,7 @@ function AppInner() {
   const [livreurs, setLivreurs] = useState([]);
   const [livreurFilter, setLivreurFilter] = useState("tous");
   const [callFilter, setCallFilter] = useState("toutes");
+  const [periode, setPeriode] = useState({actif:false,du:"",au:""});
   const [produits, setProduits] = useState([]);
   const [depenses, setDepenses] = useState([]);
   const [wishlist, setWishlist] = useState([]);
@@ -282,6 +283,8 @@ function AppInner() {
   }
 
   // Alerte in-app de secours : nouvelles commandes (Patron/Assistante) ou nouvelles livraisons (Livreur)
+  const periodeRef = useRef({actif:false,du:"",au:""});
+  useEffect(()=>{ periodeRef.current = periode; if(screen==="app") loadOrders(viewDate); },[periode]);
   const seenIdsRef = useRef(null);
   useEffect(()=>{
     if(screen!=="app") return;
@@ -342,7 +345,11 @@ function AppInner() {
     setRefreshing(true);
     try{
       const d = forDate || TODAY;
-      const [shopR, savedR] = await Promise.all([ fetch(`/api/shopify?date=${d}&days=7`), fetch("/api/orders") ]);
+      const joursFenetre = periodeRef.current?.actif
+        ? Math.max(7, Math.ceil((new Date(periodeRef.current.au)-new Date(periodeRef.current.du))/86400000)+2)
+        : 7;
+      const dateFin = periodeRef.current?.actif ? periodeRef.current.au : d;
+      const [shopR, savedR] = await Promise.all([ fetch(`/api/shopify?date=${dateFin}&days=${joursFenetre}`), fetch("/api/orders") ]);
       const shop = await shopR.json();
       const saved = await savedR.json();
       // Protection : si Shopify n'a rien renvoyé du tout (erreur), on garde la liste actuelle au lieu de l'écraser
@@ -415,7 +422,10 @@ function AppInner() {
 
   /* ─ DERIVED ─ */
   // Orders to show today: created today OR reported to today
-  const todayOrders = orders.filter(o => o.date===viewDate || (o.statut==="reportee" && o.reportDate===viewDate));
+  const dansPeriode = (o)=> o.date>=periode.du && o.date<=periode.au;
+  const todayOrders = periode.actif
+    ? orders.filter(o => dansPeriode(o))
+    : orders.filter(o => o.date===viewDate || (o.statut==="reportee" && o.reportDate===viewDate));
   const abidjan = todayOrders.filter(o=>getZone(o.commune)==="abidjan");
   const hors = todayOrders.filter(o=>getZone(o.commune)==="hors");
   const autre = todayOrders.filter(o=>getZone(o.commune)==="autre");
@@ -439,9 +449,9 @@ function AppInner() {
   // Date d'apparition chez le livreur : celle du transfert. Si elle manque (ancienne commande
   // transférée avant la mise à jour), on la considère comme "aujourd'hui" pour ne JAMAIS la perdre.
   const dateLivreur = (o)=> o.transfertDate || (o.date===TODAY ? o.date : TODAY);
-  const livraisons = orders.filter(o=>o.transferred && dateLivreur(o)===viewDate && estAuPrincipal(o));
+  const livraisons = orders.filter(o=>o.transferred && (periode.actif?dansPeriode({date:dateLivreur(o)}):dateLivreur(o)===viewDate) && estAuPrincipal(o));
   // Historique de tous les transferts (tous livreurs) pour l'onglet Livraisons
-  const transferts = orders.filter(o=>o.transferred && dateLivreur(o)===viewDate);
+  const transferts = orders.filter(o=>o.transferred && (periode.actif?dansPeriode({date:dateLivreur(o)}):dateLivreur(o)===viewDate));
 
   /* ─ ORDER ACTIONS ─ */
   async function updateOrder(o, updates){
@@ -686,10 +696,14 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-thumb{background:#CBD5E8;border-radius:5px}
 
-/* THÈME CLAIR (défaut) */
-.theme-clair{--bg:#F8FAFC;--card:#FFFFFF;--text:#0F172A;--text-soft:#475569;--text-mute:#94A3B8;--border:#E9EDF3;--input-bg:#FFFFFF;--topbar-bg:rgba(248,250,252,0.72);--sidebar-bg:#0F172A;--brand:#4F46E5;--brand-bright:#6366F1;}
-/* THÈME SOMBRE */
-.theme-sombre{--bg:#0F172A;--card:#1E293B;--text:#F1F5F9;--text-soft:#94A3B8;--text-mute:#64748B;--border:#293548;--input-bg:#243349;--topbar-bg:rgba(15,23,42,0.72);--sidebar-bg:#0B1220;--brand:#6366F1;--brand-bright:#818CF8;}
+/* THÈME CLAIR — direction "Clarté" : fond bleuté doux, cartes blanches, accent indigo */
+.theme-clair{--bg:#F4F6FA;--card:#FFFFFF;--text:#0F172A;--text-soft:#475569;--text-mute:#94A3B8;--border:#E4EAF3;--input-bg:#FFFFFF;--topbar-bg:rgba(255,255,255,0.85);--sidebar-bg:#0F172A;--brand:#4F46E5;--brand-bright:#6366F1;--accent:#4F46E5;--money:#0F9D6E;}
+/* THÈME SOMBRE — direction "Nuit" : bleu nuit profond, accent orange doré */
+.theme-sombre{--bg:#0F1626;--card:#1B2438;--text:#F1F5F9;--text-soft:#CBD5E1;--text-mute:#64748B;--border:#2A3450;--input-bg:#232E45;--topbar-bg:rgba(21,30,51,0.88);--sidebar-bg:#0B1220;--brand:#F59E0B;--brand-bright:#FBBF24;--accent:#F59E0B;--money:#34D399;}
+
+/* Cartes : ombres douces et coins arrondis cohérents */
+.theme-clair .card{box-shadow:0 1px 3px rgba(15,23,42,.06);border:1px solid var(--border);}
+.theme-sombre .card{box-shadow:none;border:1px solid rgba(255,255,255,.06);}
 
 .app-root{background:var(--bg);color:var(--text);}
 .app-root .card{background:var(--card)!important;border-color:var(--border)!important;}
@@ -713,8 +727,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
 @media (max-width:768px){
   /* Cacher la sidebar desktop, afficher la nav du bas */
   .desktop-sidebar{display:none!important;}
-  .main-content{margin-left:0!important;padding-bottom:78px!important;}
-  .content-pad{padding:14px!important;}
+  .main-content{margin-left:0!important;padding-bottom:78px!important;max-width:100vw!important;overflow-x:hidden!important;}
+  .content-pad{padding:14px!important;max-width:100%!important;overflow-x:hidden!important;}
   .mobile-nav{display:flex!important;}
   .mobile-topbar-btn{display:flex!important;}
 
@@ -745,7 +759,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
       {/* SIDEBAR (desktop) — hidden for livreur */}
       {!isLivreur && <div className="desktop-sidebar"><Sidebar ROLES={ROLES} role={role} navItems={navItems} tab={tab} setTab={setTab} reportees={reportees} todayOrders={todayOrders} livrees={livrees} enAttente={enAttente} beneficeJour={beneficeJour} depJour={depJour} canVoirMontants={can('voir_montants')} theme={theme} onSettings={()=>setShowSettings(true)} onLogout={logout}/></div>}
 
-      <div className="main-content" style={{marginLeft:isLivreur?0:240,flex:1,minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+      <div className="main-content" style={{marginLeft:isLivreur?0:240,flex:1,minWidth:0,maxWidth:"100%",minHeight:"100vh",display:"flex",flexDirection:"column"}}>
         {/* TOPBAR */}
         <div className="topbar" style={{borderBottom:"1px solid #E8ECF4",padding:"0 16px",height:62,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -767,7 +781,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {/* ═══ COMMANDES ═══ */}
           {tab==="commandes" && can('commandes') && (
             <div className="fadeIn">
-              <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
+              <DateNav viewDate={viewDate} setViewDate={setViewDate} periode={periode} setPeriode={setPeriode}/>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:22}}>
                 <Stat label="Total du jour" value={todayOrders.length} icon="📦" color="#E5B567"/>
                 <Stat label="Livrées" value={livrees.length} icon="✅" color="#2BB673" sub={`${todayOrders.length?Math.round(livrees.length/todayOrders.length*100):0}%`}/>
@@ -781,21 +795,20 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                 const applyCall = (list)=> cf==="appelees"?list.filter(o=>(o.contacted||[]).includes("appel")):cf==="non_appelees"?list.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree"):list;
                 return <>
               {isPatron&&<>
-              <div style={{display:"flex",gap:10,marginBottom:8}}>
-                <div onClick={()=>setCallFilter(callFilter==="appelees"?"toutes":"appelees")} style={{flex:1,borderRadius:18,padding:"16px 14px",cursor:"pointer",position:"relative",overflow:"hidden",background:"linear-gradient(135deg,#0FA97A,#0B8A63)",color:"#fff",border:callFilter==="appelees"?"2px solid #0F172A":"2px solid transparent",boxShadow:callFilter==="appelees"?"0 6px 18px rgba(15,23,42,.18)":"none",transition:"all .15s"}}>
-                  <div style={{position:"absolute",right:10,top:10,fontSize:20,opacity:.35}}>📞</div>
-                  <div style={{fontSize:32,fontWeight:800,lineHeight:1}}>{appelees.length}</div>
-                  <div style={{fontSize:12,fontWeight:700,marginTop:6}}>Appelées</div>
-                  <div style={{fontSize:10,opacity:.75,marginTop:2}}>Voir la liste + heures</div>
+              <div style={{display:"flex",gap:9,marginBottom:16}}>
+                <div onClick={()=>setCallFilter("toutes")} className="card" style={{flex:1,borderRadius:16,padding:"13px 12px",cursor:"pointer",minWidth:0,outline:callFilter==="toutes"?"2px solid var(--accent,#4F46E5)":"none"}}>
+                  <div style={{fontSize:24,fontWeight:800,lineHeight:1,color:"var(--accent,#4F46E5)"}}>{todayOrders.length}</div>
+                  <div style={{fontSize:10,color:"var(--text-mute)",marginTop:4,fontWeight:700,letterSpacing:".02em"}}>TOUTES</div>
                 </div>
-                <div onClick={()=>setCallFilter(callFilter==="non_appelees"?"toutes":"non_appelees")} style={{flex:1,borderRadius:18,padding:"16px 14px",cursor:"pointer",position:"relative",overflow:"hidden",background:"linear-gradient(135deg,#E5484D,#C23438)",color:"#fff",border:callFilter==="non_appelees"?"2px solid #0F172A":"2px solid transparent",boxShadow:callFilter==="non_appelees"?"0 6px 18px rgba(15,23,42,.18)":"none",transition:"all .15s"}}>
-                  <div style={{position:"absolute",right:10,top:10,fontSize:20,opacity:.35}}>🚫</div>
-                  <div style={{fontSize:32,fontWeight:800,lineHeight:1}}>{nonAppelees.length}</div>
-                  <div style={{fontSize:12,fontWeight:700,marginTop:6}}>Pas appelées</div>
-                  <div style={{fontSize:10,opacity:.75,marginTop:2}}>Qui reste à appeler</div>
+                <div onClick={()=>setCallFilter(callFilter==="appelees"?"toutes":"appelees")} className="card" style={{flex:1,borderRadius:16,padding:"13px 12px",cursor:"pointer",minWidth:0,outline:callFilter==="appelees"?"2px solid #0F9D6E":"none"}}>
+                  <div style={{fontSize:24,fontWeight:800,lineHeight:1,color:"#0F9D6E"}}>{appelees.length}</div>
+                  <div style={{fontSize:10,color:"var(--text-mute)",marginTop:4,fontWeight:700,letterSpacing:".02em"}}>📞 APPELÉES</div>
+                </div>
+                <div onClick={()=>setCallFilter(callFilter==="non_appelees"?"toutes":"non_appelees")} className="card" style={{flex:1,borderRadius:16,padding:"13px 12px",cursor:"pointer",minWidth:0,outline:callFilter==="non_appelees"?"2px solid #E5484D":"none"}}>
+                  <div style={{fontSize:24,fontWeight:800,lineHeight:1,color:"#E5484D"}}>{nonAppelees.length}</div>
+                  <div style={{fontSize:10,color:"var(--text-mute)",marginTop:4,fontWeight:700,letterSpacing:".02em"}}>🚫 À APPELER</div>
                 </div>
               </div>
-              <button onClick={()=>setCallFilter("toutes")} style={{width:"100%",padding:10,borderRadius:14,border:"none",cursor:"pointer",background:callFilter==="toutes"?"#0F172A":"var(--card,#fff)",color:callFilter==="toutes"?"#fff":"var(--text-soft,#475569)",fontSize:13,fontWeight:700,marginBottom:18,fontFamily:"inherit",boxShadow:"0 1px 3px rgba(15,23,42,.06)"}}>Voir toutes les commandes ({todayOrders.length})</button>
               </>}
               {refreshing&&orders.length===0?<OrderSkeleton/>:(
                 <div>
@@ -806,10 +819,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                   })()}
                 </div>
               )}
-              {!refreshing&&todayOrders.length===0&&<Empty icon="📭" title="Aucune commande aujourd'hui" sub="Les commandes Shopify apparaîtront ici"/>}
+              {!refreshing&&todayOrders.length===0&&<Empty icon="📭" title={periode.actif?"Aucune commande sur cette période":"Aucune commande aujourd'hui"} sub="Les commandes Shopify apparaîtront ici"/>}
 
               {/* ── FLUX DES JOURS PRÉCÉDENTS (façon Shopify : on défile vers le passé) ── */}
-              {cf==="toutes"&&[1,2,3,4,5,6].map(k=>{
+              {cf==="toutes"&&!periode.actif&&[1,2,3,4,5,6].map(k=>{
                 const dt = new Date(viewDate+"T12:00:00"); dt.setDate(dt.getDate()-k);
                 const dStr = dt.toISOString().split("T")[0];
                 const list = orders.filter(o=>o.date===dStr || (o.statut==="reportee"&&o.reportDate===dStr)).sort((a,b)=>(b.heure||"").localeCompare(a.heure||""));
@@ -838,7 +851,26 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {tab==="livraisons" && isLivreur && (
             <div className="fadeIn">
               <NotifSetup role={role} isLivreur banner/>
-              <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
+              <DateNav viewDate={viewDate} setViewDate={setViewDate} periode={periode} setPeriode={setPeriode}/>
+
+              {/* Vue d'ensemble de la journée (chiffres seulement, pas la liste) */}
+              <div className="card" style={{padding:"14px 15px",marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:800,color:"var(--text-mute)",letterSpacing:".05em",marginBottom:11}}>📊 ACTIVITÉ DE LA BOUTIQUE</div>
+                <div style={{display:"flex",gap:9}}>
+                  <div style={{flex:1,textAlign:"center",padding:"10px 6px",borderRadius:13,background:"var(--bg)",minWidth:0}}>
+                    <div style={{fontSize:23,fontWeight:800,color:"var(--brand)",lineHeight:1}}>{todayOrders.length}</div>
+                    <div style={{fontSize:9,color:"var(--text-mute)",marginTop:4,fontWeight:700}}>COMMANDES</div>
+                  </div>
+                  <div style={{flex:1,textAlign:"center",padding:"10px 6px",borderRadius:13,background:"var(--bg)",minWidth:0}}>
+                    <div style={{fontSize:23,fontWeight:800,color:"#0F9D6E",lineHeight:1}}>{todayOrders.filter(o=>(o.contacted||[]).includes("appel")).length}</div>
+                    <div style={{fontSize:9,color:"var(--text-mute)",marginTop:4,fontWeight:700}}>📞 APPELÉES</div>
+                  </div>
+                  <div style={{flex:1,textAlign:"center",padding:"10px 6px",borderRadius:13,background:"var(--bg)",minWidth:0}}>
+                    <div style={{fontSize:23,fontWeight:800,color:"#E5484D",lineHeight:1}}>{todayOrders.filter(o=>!(o.contacted||[]).includes("appel") && o.statut!=="livree").length}</div>
+                    <div style={{fontSize:9,color:"var(--text-mute)",marginTop:4,fontWeight:700}}>🚫 À APPELER</div>
+                  </div>
+                </div>
+              </div>
               <button onClick={()=>setShowAddOrder(true)} style={{width:"100%",padding:13,borderRadius:14,border:"2px dashed #C7D2FE",background:"#EEF0FE",color:"#4F46E5",fontSize:14,fontWeight:700,cursor:"pointer",margin:"14px 0 0",fontFamily:"inherit"}}>➕ Ajouter une commande</button>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:22,marginTop:16}}>
                 <Stat label="À livrer" value={livraisons.filter(o=>o.livreurStatut!=="livre").length} icon="📦" color="#F59E0B"/>
@@ -877,7 +909,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
           {/* ═══ HISTORIQUE LIVRAISONS (Patron + Assistante) ═══ */}
           {tab==="livraisons_histo" && !isLivreur && can('commandes') && (
             <div className="fadeIn">
-              <DateNav viewDate={viewDate} setViewDate={setViewDate}/>
+              <DateNav viewDate={viewDate} setViewDate={setViewDate} periode={periode} setPeriode={setPeriode}/>
               <div style={{display:"flex",gap:8,margin:"16px 0",flexWrap:"wrap"}}>
                 <button onClick={()=>setLivreurFilter("tous")} style={{padding:"6px 14px",borderRadius:20,cursor:"pointer",background:livreurFilter==="tous"?"#4F46E5":"var(--card)",color:livreurFilter==="tous"?"#fff":"#5B6B8C",fontSize:12,fontWeight:600,fontFamily:"inherit",border:"1px solid var(--border,#E8ECF4)"}}>Tous les livreurs</button>
                 {livreurs.map(lv=>(
@@ -1252,8 +1284,11 @@ function OrderSkeleton(){
   );
 }
 
-function DateNav({viewDate,setViewDate}){
+function DateNav({viewDate,setViewDate,periode,setPeriode}){
   const TODAY = new Date().toISOString().split("T")[0];
+  const [ouvrirPeriode,setOuvrirPeriode]=useState(false);
+  const [du,setDu]=useState(periode?.du||"");
+  const [au,setAu]=useState(periode?.au||"");
   function shift(days){
     const d = new Date(viewDate); d.setDate(d.getDate()+days);
     setViewDate(d.toISOString().split("T")[0]);
@@ -1263,16 +1298,52 @@ function DateNav({viewDate,setViewDate}){
   const label = dObj.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
   const yest = new Date(); yest.setDate(yest.getDate()-1);
   const isYesterday = viewDate===yest.toISOString().split("T")[0];
-  return (
-    <div className="card" style={{padding:"10px 12px",marginBottom:18,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-      <button onClick={()=>shift(-1)} style={{width:38,height:38,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",fontSize:16,color:"#5B6B8C"}}>‹</button>
-      <div style={{flex:1,textAlign:"center",minWidth:140}}>
-        <div style={{fontSize:15,fontWeight:700,textTransform:"capitalize"}}>{isToday?"Aujourd'hui":isYesterday?"Hier":label}</div>
-        {!isToday&&<div style={{fontSize:11,color:"#9AA8C4",textTransform:"capitalize"}}>{label}</div>}
+  const court=(d)=>d?new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):"";
+  const actif = !!periode?.actif;
+
+  // ── Mode période active ──
+  if(actif){
+    return (
+      <div className="card" style={{padding:"12px 14px",marginBottom:18}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:20}}>📆</span>
+          <div style={{flex:1,minWidth:130}}>
+            <div style={{fontSize:15,fontWeight:800,color:"var(--text)"}}>Du {court(periode.du)} au {court(periode.au)}</div>
+            <div style={{fontSize:11,color:"var(--text-mute)"}}>Période personnalisée</div>
+          </div>
+          <button onClick={()=>{setPeriode({actif:false,du:"",au:""});setOuvrirPeriode(false);}} style={{padding:"9px 14px",borderRadius:10,border:"none",background:"var(--brand)",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕ Quitter la période</button>
+        </div>
       </div>
-      <button onClick={()=>shift(1)} style={{width:38,height:38,borderRadius:10,border:"1px solid #E8ECF4",background:"#fff",cursor:"pointer",fontSize:16,color:"#5B6B8C"}}>›</button>
-      <input type="date" value={viewDate} onChange={e=>setViewDate(e.target.value)} style={{padding:"9px 12px",borderRadius:10,border:"1.5px solid #E8ECF4",background:"#fff",fontSize:13,fontFamily:"inherit",outline:"none",color:"#0F1B3C"}}/>
-      {!isToday&&<button onClick={()=>setViewDate(TODAY)} style={{padding:"9px 14px",borderRadius:10,border:"none",background:"#FBF4E6",color:"#C99A4B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Aujourd'hui</button>}
+    );
+  }
+
+  return (
+    <div className="card" style={{padding:"10px 12px",marginBottom:18}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <button onClick={()=>shift(-1)} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:16,color:"var(--text-soft)"}}>‹</button>
+        <div style={{flex:1,textAlign:"center",minWidth:120}}>
+          <div style={{fontSize:15,fontWeight:700,textTransform:"capitalize",color:"var(--text)"}}>{isToday?"Aujourd'hui":isYesterday?"Hier":label}</div>
+          {!isToday&&<div style={{fontSize:11,color:"var(--text-mute)",textTransform:"capitalize"}}>{label}</div>}
+        </div>
+        <button onClick={()=>shift(1)} style={{width:38,height:38,borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",cursor:"pointer",fontSize:16,color:"var(--text-soft)"}}>›</button>
+        <input type="date" value={viewDate} onChange={e=>setViewDate(e.target.value)} style={{padding:"9px 10px",borderRadius:10,border:"1.5px solid var(--border)",background:"var(--input-bg,#fff)",fontSize:13,fontFamily:"inherit",outline:"none",color:"var(--text)"}}/>
+        {!isToday&&<button onClick={()=>setViewDate(TODAY)} style={{padding:"9px 12px",borderRadius:10,border:"none",background:"var(--brand-soft,#EEF0FE)",color:"var(--brand)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Aujourd'hui</button>}
+        <button onClick={()=>setOuvrirPeriode(v=>!v)} style={{padding:"9px 12px",borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-soft)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📆 Période</button>
+      </div>
+      {ouvrirPeriode&&<div style={{marginTop:12,paddingTop:12,borderTop:"1px solid var(--border)"}}>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--text-soft)",marginBottom:9}}>Voir les commandes sur une période</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <div style={{flex:1,minWidth:120}}>
+            <div style={{fontSize:10,color:"var(--text-mute)",marginBottom:3}}>Du</div>
+            <input type="date" value={du} onChange={e=>setDu(e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:"1.5px solid var(--border)",background:"var(--input-bg,#fff)",fontSize:13,fontFamily:"inherit",color:"var(--text)"}}/>
+          </div>
+          <div style={{flex:1,minWidth:120}}>
+            <div style={{fontSize:10,color:"var(--text-mute)",marginBottom:3}}>Au</div>
+            <input type="date" value={au} onChange={e=>setAu(e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:"1.5px solid var(--border)",background:"var(--input-bg,#fff)",fontSize:13,fontFamily:"inherit",color:"var(--text)"}}/>
+          </div>
+        </div>
+        <button onClick={()=>{ if(!du||!au)return; const a=du<=au?du:au, b=du<=au?au:du; setPeriode({actif:true,du:a,au:b}); setOuvrirPeriode(false); }} style={{width:"100%",marginTop:10,padding:12,borderRadius:11,border:"none",background:"var(--brand)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>✓ Afficher cette période</button>
+      </div>}
     </div>
   );
 }
