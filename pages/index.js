@@ -422,8 +422,9 @@ function AppInner() {
 
   /* ─ DERIVED ─ */
   // Orders to show today: created today OR reported to today
+  const periodeOK = !!(periode.actif && periode.du && periode.au);
   const dansPeriode = (o)=> o.date>=periode.du && o.date<=periode.au;
-  const todayOrders = periode.actif
+  const todayOrders = periodeOK
     ? orders.filter(o => dansPeriode(o))
     : orders.filter(o => o.date===viewDate || (o.statut==="reportee" && o.reportDate===viewDate));
   const abidjan = todayOrders.filter(o=>getZone(o.commune)==="abidjan");
@@ -449,9 +450,9 @@ function AppInner() {
   // Date d'apparition chez le livreur : celle du transfert. Si elle manque (ancienne commande
   // transférée avant la mise à jour), on la considère comme "aujourd'hui" pour ne JAMAIS la perdre.
   const dateLivreur = (o)=> o.transfertDate || (o.date===TODAY ? o.date : TODAY);
-  const livraisons = orders.filter(o=>o.transferred && (periode.actif?dansPeriode({date:dateLivreur(o)}):dateLivreur(o)===viewDate) && estAuPrincipal(o));
+  const livraisons = orders.filter(o=>o.transferred && (periodeOK?dansPeriode({date:dateLivreur(o)}):dateLivreur(o)===viewDate) && estAuPrincipal(o));
   // Historique de tous les transferts (tous livreurs) pour l'onglet Livraisons
-  const transferts = orders.filter(o=>o.transferred && (periode.actif?dansPeriode({date:dateLivreur(o)}):dateLivreur(o)===viewDate));
+  const transferts = orders.filter(o=>o.transferred && (periodeOK?dansPeriode({date:dateLivreur(o)}):dateLivreur(o)===viewDate));
 
   /* ─ ORDER ACTIONS ─ */
   async function updateOrder(o, updates){
@@ -809,6 +810,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                   <div style={{fontSize:10,color:"var(--text-mute)",marginTop:4,fontWeight:700,letterSpacing:".02em"}}>🚫 À APPELER</div>
                 </div>
               </div>
+              {(callFilter!=="toutes"||periodeOK)&&<button onClick={()=>{setCallFilter("toutes");setPeriode({actif:false,du:"",au:""});}} style={{width:"100%",padding:11,borderRadius:12,border:"none",background:"var(--brand)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",marginBottom:16,fontFamily:"inherit"}}>↩︎ Voir toutes les commandes du jour</button>}
               </>}
               {refreshing&&orders.length===0?<OrderSkeleton/>:(
                 <div>
@@ -819,10 +821,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif}
                   })()}
                 </div>
               )}
-              {!refreshing&&todayOrders.length===0&&<Empty icon="📭" title={periode.actif?"Aucune commande sur cette période":"Aucune commande aujourd'hui"} sub="Les commandes Shopify apparaîtront ici"/>}
+              {!refreshing&&todayOrders.length===0&&<Empty icon="📭" title={periodeOK?"Aucune commande sur cette période":"Aucune commande aujourd'hui"} sub="Les commandes Shopify apparaîtront ici"/>}
 
               {/* ── FLUX DES JOURS PRÉCÉDENTS (façon Shopify : on défile vers le passé) ── */}
-              {cf==="toutes"&&!periode.actif&&[1,2,3,4,5,6].map(k=>{
+              {cf==="toutes"&&!periodeOK&&[1,2,3,4,5,6].map(k=>{
                 const dt = new Date(viewDate+"T12:00:00"); dt.setDate(dt.getDate()-k);
                 const dStr = dt.toISOString().split("T")[0];
                 const list = orders.filter(o=>o.date===dStr || (o.statut==="reportee"&&o.reportDate===dStr)).sort((a,b)=>(b.heure||"").localeCompare(a.heure||""));
